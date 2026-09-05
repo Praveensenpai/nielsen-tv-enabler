@@ -1,9 +1,12 @@
+//! Application configuration loader and persistence.
+
 use anyhow::{Context, Result};
 use log::{debug, info};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// Application configuration settings.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Config {
     /// IP address of the Android TV. Set to "auto" or leave empty to auto-scan subnet.
@@ -86,6 +89,8 @@ impl Default for Config {
 }
 
 impl Config {
+    /// Returns the standard default user config path in `~/.config/nielsen-tv-enabler/config.toml`.
+    #[must_use]
     pub fn get_default_config_path() -> PathBuf {
         if let Some(config_dir) = dirs::config_dir() {
             config_dir.join("nielsen-tv-enabler").join("config.toml")
@@ -94,6 +99,10 @@ impl Config {
         }
     }
 
+    /// Loads existing configuration from disk or creates default configuration file.
+    ///
+    /// # Errors
+    /// Returns an error if reading or creating the configuration file fails.
     pub fn load_or_create(custom_path: Option<&Path>) -> Result<(Self, PathBuf)> {
         let path = match custom_path {
             Some(p) => p.to_path_buf(),
@@ -104,29 +113,33 @@ impl Config {
             debug!("Loading configuration from {}", path.display());
             let content = fs::read_to_string(&path)
                 .with_context(|| format!("Failed to read config file at {}", path.display()))?;
-            let config: Config = toml::from_str(&content)
+            let config: Self = toml::from_str(&content)
                 .with_context(|| format!("Failed to parse config file at {}", path.display()))?;
             Ok((config, path))
         } else {
-            let config = Config::default();
+            let config = Self::default();
             if let Some(parent) = path.parent() {
                 fs::create_dir_all(parent)?;
             }
-            let toml_str = toml::to_string_pretty(&config)
-                .context("Failed to serialize default config")?;
-            fs::write(&path, toml_str)
-                .with_context(|| format!("Failed to create default config at {}", path.display()))?;
+            let toml_str =
+                toml::to_string_pretty(&config).context("Failed to serialize default config")?;
+            fs::write(&path, toml_str).with_context(|| {
+                format!("Failed to create default config at {}", path.display())
+            })?;
             info!("Created default configuration at {}", path.display());
             Ok((config, path))
         }
     }
 
+    /// Saves the current configuration to the specified file path.
+    ///
+    /// # Errors
+    /// Returns an error if serializing or writing to the file fails.
     pub fn save(&self, path: &Path) -> Result<()> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        let toml_str = toml::to_string_pretty(self)
-            .context("Failed to serialize config")?;
+        let toml_str = toml::to_string_pretty(self).context("Failed to serialize config")?;
         fs::write(path, toml_str)
             .with_context(|| format!("Failed to save config to {}", path.display()))?;
         Ok(())

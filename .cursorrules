@@ -1,0 +1,8 @@
+# Rust Codebase Rules
+# See full rules in RULES.md and .cursor/rules/rust.mdc
+
+- Hard limits: <400 lines/file (fail), <60 lines/fn (fail), 8-10 fns/file, <=4 params/fn, nesting <=3.
+- Zero tolerance: no dead code, no #[allow(...)] without single-line // reason:, no unwrap/expect outside tests/main boundary.
+- Zero warnings: cargo build and clippy must pass with 0 warnings.
+- Architecture: domain/ never imports infra/ or api/. infra/ implements domain/ traits.
+- Tests: unit tests colocated in cfg(test) mod tests, integration tests in tests/.
