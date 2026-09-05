@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.1.4] - 2026-09-06
+
+Humanized prompt reaction delays, organic daily sync jitter, and wake-driven sync scheduling!
+
+### 🌟 Key Highlights
+- **🎭 Humanized Prompt Reaction Delay**: Injects an organic delay between 2,200ms and 5,400ms before answering *"Who is watching?"* survey dialogs to mimic genuine human reaction and decision-making time.
+- **🎲 Organic Sync Jitter**: Daily background sync cycles now feature configurable pseudo-random variance (`sync_jitter_mins = 30` by default), avoiding rigid cron-like timing patterns.
+- **📺 Organic Wake-Driven Synchronization**: Seamlessly adapts to natural viewer habits where the TV is turned on at arbitrary times throughout the day, aligning background sync triggers with real viewing sessions.
+- **⚙️ Configurable Timing Parameters**: Added `sync_jitter_mins` to `config.toml` for full control over timing randomization.
+- **🧪 Unit Testing**: Added unit tests for reaction delay boundary ranges and jittered sync tracker intervals.
+
+### 📦 Multi-Architecture Binaries
+- **x86_64 Linux**: `nielsen-tv-enabler-x86_64-unknown-linux-gnu.tar.gz`
+- **aarch64 / ARM64 Linux**: `nielsen-tv-enabler-aarch64-unknown-linux-gnu.tar.gz`
+
+### ⚡ Quick 1-Click Install
+```bash
+curl -fsSL https://raw.githubusercontent.com/Praveensenpai/nielsen-tv-enabler/main/install.sh | bash
+```
+
+---
+
 ## [v0.1.3] - 2026-09-06
 
 Pure ADB background automation with zero UI disruption, always-on VPN configuration, and automated daily data sync!

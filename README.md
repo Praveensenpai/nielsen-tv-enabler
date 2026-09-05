@@ -30,8 +30,9 @@ On many Android TVs, accessibility services (like Nielsen's `com.nlsn.confluence
 
 | Feature | Description |
 |---|---|
-| **🤖 Survey Auto-Dismissal** | Scans for *"Who is watching?"* dialogs, calculates checkbox coordinates, picks a member, clicks OK, and dismisses the overlay. |
+| **🤖 Survey Auto-Dismissal** | Scans for *"Who is watching?"* dialogs, calculates checkbox coordinates, picks a member, pauses with humanized reaction delay (2.2s–5.4s), clicks OK, and dismisses the overlay. |
 | **🛡️ VPN Access Auto-Approval** | Grants `ACTIVATE_VPN` app-op permission and automatically approves Android system VPN connection request dialogs (`com.android.vpndialogs`). |
+| **🔄 Organic Daily Sync** | Triggers Nielsen background data upload once per day (10s post-enable delay) with organic ±30 min timing variance. |
 | **🔍 Subnet Auto-Scanning** | Scans all 254 hosts on your local subnet in parallel over port `5555` to automatically find your TV's IP. |
 | **⚡ Fast IP Caching** | Caches the last verified working IP for instant reconnects without redundant subnet sweeps. |
 | **💤 Graceful Backoff** | Backs off cleanly when the TV is asleep or turned off without spamming system logs. |
@@ -168,6 +169,9 @@ daily_sync = true
 
 # Delay in seconds after enabling services before initiating daily sync
 sync_delay_secs = 10
+
+# Organic timing jitter in minutes (±mins) applied to daily sync cycles
+sync_jitter_mins = 30
 ```
 
 ### CLI Overrides

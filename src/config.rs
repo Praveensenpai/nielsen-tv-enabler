@@ -58,6 +58,10 @@ pub struct Config {
     /// Delay in seconds after enabling services before triggering background daily sync.
     #[serde(default = "default_sync_delay")]
     pub sync_delay_secs: u64,
+
+    /// Organic random jitter window in minutes (±mins) applied to daily sync cycles.
+    #[serde(default = "default_sync_jitter")]
+    pub sync_jitter_mins: u32,
 }
 
 const fn default_true() -> bool {
@@ -84,6 +88,10 @@ const fn default_sync_delay() -> u64 {
     10
 }
 
+const fn default_sync_jitter() -> u32 {
+    30
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -99,21 +107,12 @@ impl Default for Config {
             auto_allow_vpn: default_true(),
             daily_sync: default_true(),
             sync_delay_secs: default_sync_delay(),
+            sync_jitter_mins: default_sync_jitter(),
         }
     }
 }
 
 impl Config {
-    /// Returns the standard default user config path in `~/.config/nielsen-tv-enabler/config.toml`.
-    #[must_use]
-    pub fn get_default_config_path() -> PathBuf {
-        if let Some(config_dir) = dirs::config_dir() {
-            config_dir.join("nielsen-tv-enabler").join("config.toml")
-        } else {
-            PathBuf::from("nielsen-tv-enabler.toml")
-        }
-    }
-
     /// Loads existing configuration from disk or creates default configuration file.
     ///
     /// # Errors
@@ -121,7 +120,10 @@ impl Config {
     pub fn load_or_create(custom_path: Option<&Path>) -> Result<(Self, PathBuf)> {
         let path = match custom_path {
             Some(p) => p.to_path_buf(),
-            None => Self::get_default_config_path(),
+            None => dirs::config_dir().map_or_else(
+                || PathBuf::from("nielsen-tv-enabler.toml"),
+                |d| d.join("nielsen-tv-enabler").join("config.toml"),
+            ),
         };
 
         if path.exists() {

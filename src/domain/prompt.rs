@@ -35,8 +35,12 @@ pub fn handle_who_is_watching(device: &impl DeviceCommander, device_target: &str
         return Ok(false);
     }
 
+    let delay = humanized_reaction_delay();
+    info!("[PROMPT DETECTED] Waiting {delay:?} to simulate natural viewer reaction...");
+    std::thread::sleep(delay);
+
     let (selected_name, sel_x, sel_y) = pick_random_member(&options);
-    info!("[PROMPT DETECTED] Randomly selecting '{selected_name}' at ({sel_x}, {sel_y})...");
+    info!("Randomly selecting '{selected_name}' at ({sel_x}, {sel_y})...");
 
     device.run_shell(device_target, &format!("input tap {sel_x} {sel_y}"))?;
     std::thread::sleep(Duration::from_millis(300));
@@ -49,6 +53,17 @@ pub fn handle_who_is_watching(device: &impl DeviceCommander, device_target: &str
     dismiss_overlay_if_active(device, device_target);
     info!("[SUCCESS] Answered 'Who is watching?' with '{selected_name}'!");
     Ok(true)
+}
+
+/// Calculates an organic, human-like reaction delay between 2,200ms and 5,400ms before prompt response.
+#[must_use]
+pub fn humanized_reaction_delay() -> Duration {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let offset_ms = u64::try_from(nanos % 3200).unwrap_or(1500);
+    Duration::from_millis(2200 + offset_ms)
 }
 
 /// Parses member checkboxes and calculates center coordinates for tapping.
@@ -154,5 +169,12 @@ mod tests {
         let (x, y) = extract_ok_button(xml);
         assert_eq!(x, 250);
         assert_eq!(y, 450);
+    }
+
+    #[test]
+    fn test_humanized_reaction_delay_range() {
+        let delay = humanized_reaction_delay();
+        assert!(delay >= Duration::from_millis(2200));
+        assert!(delay <= Duration::from_millis(5400));
     }
 }

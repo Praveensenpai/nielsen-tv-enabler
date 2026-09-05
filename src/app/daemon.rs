@@ -24,7 +24,7 @@ pub fn run_daemon(adb: &AdbClient, mut cfg: Config, config_path: &Path) -> Resul
 
     let mut was_connected = false;
     let mut logged_offline = false;
-    let mut sync_tracker = DailySyncTracker::new(cfg.sync_delay_secs);
+    let mut sync_tracker = DailySyncTracker::new(cfg.sync_delay_secs, cfg.sync_jitter_mins);
     let mut cached_component =
         if !cfg.service_component.is_empty() && cfg.service_component != "auto" {
             Some(cfg.service_component.clone())
