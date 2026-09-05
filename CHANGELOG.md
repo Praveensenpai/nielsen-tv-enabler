@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.1.5] - 2026-09-06
+
+Safe hot-restarts for active daemons and seamless in-place updates without file-busy locks!
+
+### 🌟 Key Highlights
+- **🔄 Zero-Downtime Hot Restart**: Automatically triggers `systemctl --user restart` upon `--install-service` or re-running the 1-click installer, seamlessly swapping running processes.
+- **🛡️ ETXTBSY Protection**: Installer now leverages atomic file replacement (`install -m 755`) to eliminate "text file busy" errors when overwriting an active executable.
+- **📦 Multi-Location Binary Sync**: Seamlessly detects and updates active binaries in both `~/.local/bin` and `~/.cargo/bin`.
+
+### 📦 Multi-Architecture Binaries
+- **x86_64 Linux**: `nielsen-tv-enabler-x86_64-unknown-linux-gnu.tar.gz`
+- **aarch64 / ARM64 Linux**: `nielsen-tv-enabler-aarch64-unknown-linux-gnu.tar.gz`
+
+### ⚡ Quick 1-Click Install
+```bash
+curl -fsSL https://raw.githubusercontent.com/Praveensenpai/nielsen-tv-enabler/main/install.sh | bash
+```
+
+---
+
 ## [v0.1.4] - 2026-09-06
 
 Humanized prompt reaction delays, organic daily sync jitter, and wake-driven sync scheduling!
