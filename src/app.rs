@@ -6,7 +6,7 @@ pub use daemon::run_daemon;
 
 use crate::cli::Args;
 use crate::config::Config;
-use crate::domain::{prompt, service, vpn};
+use crate::domain::{prompt, service, sync, vpn};
 use crate::infra::adb::{AdbClient, DeviceStatus};
 use crate::infra::scanner::Scanner;
 use crate::infra::systemd::SystemdManager;
@@ -44,6 +44,9 @@ pub fn run(args: &Args) -> Result<()> {
     }
     if args.vpn {
         return run_vpn_mode(&adb, &mut cfg, &config_path);
+    }
+    if args.sync {
+        return run_sync_mode(&adb, &mut cfg, &config_path);
     }
     if args.once {
         return run_once_mode(&adb, &mut cfg, &config_path);
@@ -136,35 +139,54 @@ fn run_once_mode(adb: &AdbClient, cfg: &mut Config, config_path: &Path) -> Resul
         info!("Accessibility service was already active.");
     }
 
+    let package = component
+        .split_once('/')
+        .map_or(vpn::DEFAULT_NIELSEN_PACKAGE, |(pkg, _)| pkg);
+
+    if cfg.auto_allow_vpn {
+        let _ = vpn::grant_all_background_permissions(adb, &target, package);
+        let _ = vpn::handle_vpn_dialog(adb, &target);
+    }
+
     if cfg.auto_handle_who_is_watching && prompt::handle_who_is_watching(adb, &target)? {
         info!("Auto-dismissed 'Who is watching?' dialog.");
     }
 
-    if cfg.auto_allow_vpn {
-        let package = component
-            .split_once('/')
-            .map_or(vpn::DEFAULT_NIELSEN_PACKAGE, |(pkg, _)| pkg);
-        let _ = vpn::grant_vpn_appops(adb, &target, package);
-        let _ = vpn::handle_vpn_dialog(adb, &target);
+    if cfg.daily_sync {
+        info!(
+            "Waiting {}s before running initial data sync...",
+            cfg.sync_delay_secs
+        );
+        std::thread::sleep(std::time::Duration::from_secs(cfg.sync_delay_secs));
+        let _ = sync::trigger_background_sync(adb, &target, package);
     }
     Ok(())
 }
 
-/// Grants `ACTIVATE_VPN` appop permission and answers active VPN confirmation dialogs.
+/// Grants all background permissions and always-on VPN via ADB, and handles any active VPN dialog.
 fn run_vpn_mode(adb: &AdbClient, cfg: &mut Config, config_path: &Path) -> Result<()> {
     let (target, component) = resolve_target_device(adb, cfg, config_path)?;
     let package = component
         .split_once('/')
         .map_or(vpn::DEFAULT_NIELSEN_PACKAGE, |(pkg, _)| pkg);
 
-    vpn::grant_vpn_appops(adb, &target, package)?;
-    info!("Granted ACTIVATE_VPN appop permission to {package} on {target}.");
-
+    vpn::grant_all_background_permissions(adb, &target, package)?;
     if vpn::handle_vpn_dialog(adb, &target)? {
         info!("Confirmed active VPN connection request dialog.");
     } else {
         info!("No active VPN connection request dialog on screen.");
     }
+    Ok(())
+}
+
+/// Triggers background data synchronization via ADB immediately without opening the app UI.
+fn run_sync_mode(adb: &AdbClient, cfg: &mut Config, config_path: &Path) -> Result<()> {
+    let (target, component) = resolve_target_device(adb, cfg, config_path)?;
+    let package = component
+        .split_once('/')
+        .map_or(vpn::DEFAULT_NIELSEN_PACKAGE, |(pkg, _)| pkg);
+
+    sync::trigger_background_sync(adb, &target, package)?;
     Ok(())
 }
 
@@ -180,54 +202,30 @@ pub fn resolve_target_device(
     let ip = daemon::resolve_tv_ip(adb, cfg, config_path)?;
     let target = format!("{ip}:{}", cfg.adb_port);
 
-    ensure_device_ready(adb, &ip, cfg.adb_port, &target)?;
-    let component = resolve_service_component(adb, cfg, config_path, &target)?;
-    Ok((target, component))
-}
-
-/// Ensures device is connected and authorized.
-fn ensure_device_ready(adb: &AdbClient, ip: &str, port: u16, target: &str) -> Result<()> {
-    match adb.check_device_status(target) {
-        DeviceStatus::Ready => Ok(()),
+    match adb.check_device_status(&target) {
+        DeviceStatus::Ready => (),
         DeviceStatus::Unauthorized => {
-            bail!(
-                "Device at {target} is UNAUTHORIZED. Please accept debugging prompt on TV screen."
-            );
+            bail!("Device at {target} is UNAUTHORIZED. Please accept prompt on TV screen.");
         }
         _ => {
-            let _ = adb.connect(ip, port);
-            match adb.check_device_status(target) {
-                DeviceStatus::Ready => Ok(()),
-                DeviceStatus::Unauthorized => {
-                    bail!(
-                        "Device at {target} is UNAUTHORIZED. Please accept debugging prompt on TV screen."
-                    );
-                }
-                _ => bail!("Device at {target} is not ready or offline"),
+            let _ = adb.connect(&ip, cfg.adb_port);
+            if adb.check_device_status(&target) != DeviceStatus::Ready {
+                bail!("Device at {target} is not ready or offline");
             }
         }
     }
-}
 
-/// Resolves the Nielsen component name from config or auto-detection.
-fn resolve_service_component(
-    adb: &AdbClient,
-    cfg: &mut Config,
-    config_path: &Path,
-    target: &str,
-) -> Result<String> {
-    if !cfg.service_component.is_empty() && cfg.service_component != "auto" {
-        return Ok(cfg.service_component.clone());
-    }
-
-    let Some(detected) = service::detect_nielsen_service(adb, target)? else {
-        bail!(
-            "Failed to auto-detect Nielsen accessibility service on {target}. Please specify in config."
-        );
+    let component = if !cfg.service_component.is_empty() && cfg.service_component != "auto" {
+        cfg.service_component.clone()
+    } else {
+        let Some(detected) = service::detect_nielsen_service(adb, &target)? else {
+            bail!("Failed to auto-detect Nielsen accessibility service on {target}.");
+        };
+        info!("Auto-detected Nielsen accessibility component: {detected}");
+        cfg.service_component.clone_from(&detected);
+        let _ = cfg.save(config_path);
+        detected
     };
 
-    info!("Auto-detected Nielsen accessibility component: {detected}");
-    cfg.service_component.clone_from(&detected);
-    let _ = cfg.save(config_path);
-    Ok(detected)
+    Ok((target, component))
 }

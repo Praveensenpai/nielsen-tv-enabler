@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Config {
     /// IP address of the Android TV. Set to "auto" or leave empty to auto-scan subnet.
-    #[serde(default = "default_tv_ip")]
+    #[serde(default = "default_auto")]
     pub tv_ip: String,
 
     /// ADB port (typically 5555)
@@ -24,7 +24,7 @@ pub struct Config {
     /// Nielsen accessibility service component, e.g.:
     /// "com.nielsen.mobile/.AccessibilityService"
     /// Leave empty or "auto" to auto-detect from the TV.
-    #[serde(default = "default_service_component")]
+    #[serde(default = "default_auto")]
     pub service_component: String,
 
     /// Interval in seconds between accessibility checks while connected.
@@ -44,55 +44,61 @@ pub struct Config {
     pub adb_path: Option<String>,
 
     /// Automatically dismiss the 'Who is watching?' dialog by randomly selecting a member.
-    #[serde(default = "default_auto_handle_who_is_watching")]
+    #[serde(default = "default_true")]
     pub auto_handle_who_is_watching: bool,
 
     /// Automatically grant VPN permission and approve VPN connection request dialogs.
-    #[serde(default = "default_auto_allow_vpn")]
+    #[serde(default = "default_true")]
     pub auto_allow_vpn: bool,
+
+    /// Automatically trigger background data sync once a day after enabling services.
+    #[serde(default = "default_true")]
+    pub daily_sync: bool,
+
+    /// Delay in seconds after enabling services before triggering background daily sync.
+    #[serde(default = "default_sync_delay")]
+    pub sync_delay_secs: u64,
 }
 
-fn default_auto_allow_vpn() -> bool {
+const fn default_true() -> bool {
     true
 }
 
-fn default_auto_handle_who_is_watching() -> bool {
-    true
-}
-
-fn default_tv_ip() -> String {
+fn default_auto() -> String {
     "auto".to_string()
 }
 
-fn default_adb_port() -> u16 {
+const fn default_adb_port() -> u16 {
     5555
 }
 
-fn default_service_component() -> String {
-    "auto".to_string()
-}
-
-fn default_check_interval() -> u64 {
+const fn default_check_interval() -> u64 {
     5
 }
 
-fn default_offline_retry() -> u64 {
+const fn default_offline_retry() -> u64 {
     45
+}
+
+const fn default_sync_delay() -> u64 {
+    10
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
-            tv_ip: default_tv_ip(),
+            tv_ip: default_auto(),
             adb_port: default_adb_port(),
             last_known_ip: None,
-            service_component: default_service_component(),
+            service_component: default_auto(),
             check_interval_secs: default_check_interval(),
             offline_retry_interval_secs: default_offline_retry(),
             subnet_cidr: None,
             adb_path: None,
-            auto_handle_who_is_watching: default_auto_handle_who_is_watching(),
-            auto_allow_vpn: default_auto_allow_vpn(),
+            auto_handle_who_is_watching: default_true(),
+            auto_allow_vpn: default_true(),
+            daily_sync: default_true(),
+            sync_delay_secs: default_sync_delay(),
         }
     }
 }

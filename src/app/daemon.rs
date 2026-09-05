@@ -1,7 +1,8 @@
 //! Continuous background daemon loop and TV network discovery.
 
 use crate::config::Config;
-use crate::domain::{prompt, service, vpn};
+use crate::domain::sync::DailySyncTracker;
+use crate::domain::{prompt, service, sync, vpn};
 use crate::infra::adb::{AdbClient, DeviceStatus};
 use crate::infra::scanner::Scanner;
 use anyhow::{Result, bail};
@@ -23,6 +24,7 @@ pub fn run_daemon(adb: &AdbClient, mut cfg: Config, config_path: &Path) -> Resul
 
     let mut was_connected = false;
     let mut logged_offline = false;
+    let mut sync_tracker = DailySyncTracker::new(cfg.sync_delay_secs);
     let mut cached_component =
         if !cfg.service_component.is_empty() && cfg.service_component != "auto" {
             Some(cfg.service_component.clone())
@@ -44,7 +46,14 @@ pub fn run_daemon(adb: &AdbClient, mut cfg: Config, config_path: &Path) -> Resul
                         logged_offline = false;
                     }
 
-                    handle_active_cycle(adb, &target, &mut cached_component, &mut cfg, config_path);
+                    handle_active_cycle(
+                        adb,
+                        &target,
+                        &mut cached_component,
+                        &mut sync_tracker,
+                        &mut cfg,
+                        config_path,
+                    );
                     thread::sleep(Duration::from_secs(cfg.check_interval_secs));
                     continue;
                 }
@@ -130,11 +139,12 @@ fn check_target_ready(
     status == DeviceStatus::Ready
 }
 
-/// Executes one monitoring cycle for accessibility service and who-is-watching prompt.
+/// Executes one monitoring cycle for accessibility service, VPN permissions, and daily sync.
 fn handle_active_cycle(
     adb: &AdbClient,
     target: &str,
     cached_component: &mut Option<String>,
+    sync_tracker: &mut DailySyncTracker,
     cfg: &mut Config,
     config_path: &Path,
 ) {
@@ -158,15 +168,26 @@ fn handle_active_cycle(
         info!("[STATUS] Nielsen accessibility service was re-enabled successfully!");
     }
 
+    let package = component
+        .split_once('/')
+        .map_or(vpn::DEFAULT_NIELSEN_PACKAGE, |(pkg, _)| pkg);
+
+    if cfg.auto_allow_vpn {
+        let _ = vpn::grant_all_background_permissions(adb, target, package);
+        let _ = vpn::handle_vpn_dialog(adb, target);
+    }
+
     if cfg.auto_handle_who_is_watching {
         let _ = prompt::handle_who_is_watching(adb, target);
     }
 
-    if cfg.auto_allow_vpn {
-        let package = component
-            .split_once('/')
-            .map_or(vpn::DEFAULT_NIELSEN_PACKAGE, |(pkg, _)| pkg);
-        let _ = vpn::grant_vpn_appops(adb, target, package);
-        let _ = vpn::handle_vpn_dialog(adb, target);
+    if cfg.daily_sync && sync_tracker.is_sync_due() {
+        info!(
+            "Daily sync is due. Waiting {:?} delay after enabling services...",
+            sync_tracker.post_enable_delay()
+        );
+        thread::sleep(sync_tracker.post_enable_delay());
+        let _ = sync::trigger_background_sync(adb, target, package);
+        sync_tracker.mark_synced();
     }
 }

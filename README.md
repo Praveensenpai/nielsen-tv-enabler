@@ -122,6 +122,9 @@ nielsen-tv-enabler --dismiss-prompt
 # Grant VPN access permission and approve active VPN connection request dialog
 nielsen-tv-enabler --allow-vpn
 
+# Trigger Nielsen background data sync via ADB immediately
+nielsen-tv-enabler --sync
+
 # Run in foreground with verbose debug logs
 nielsen-tv-enabler --daemon -v
 ```
@@ -157,8 +160,14 @@ subnet_cidr = ""
 # Automatically answer 'Who is watching?' survey dialogs
 auto_handle_who_is_watching = true
 
-# Automatically grant VPN permission and approve VPN connection request dialogs
+# Automatically grant all background permissions and configure always-on VPN
 auto_allow_vpn = true
+
+# Automatically trigger background data sync once a day
+daily_sync = true
+
+# Delay in seconds after enabling services before initiating daily sync
+sync_delay_secs = 10
 ```
 
 ### CLI Overrides

@@ -8,6 +8,61 @@ use regex::Regex;
 /// Default Android TV package name for Nielsen panel app.
 pub const DEFAULT_NIELSEN_PACKAGE: &str = "com.nlsn.confluencetv";
 
+/// Grants all required background permissions (VPN, usage stats, alert window, notification listener)
+/// and configures always-on VPN purely via ADB without touching or opening the app UI.
+///
+/// # Errors
+/// Returns an error if device communication fails.
+pub fn grant_all_background_permissions(
+    device: &impl DeviceCommander,
+    device_target: &str,
+    package_name: &str,
+) -> Result<()> {
+    info!(
+        "Ensuring all background ADB permissions and always-on VPN for {package_name} on {device_target}..."
+    );
+
+    // 1. Grant VPN appops
+    let _ = device.run_shell(
+        device_target,
+        &format!("cmd appops set {package_name} ACTIVATE_VPN allow"),
+    );
+
+    // 2. Set Always-On VPN to start and maintain tunnel automatically in background
+    let _ = device.run_shell(
+        device_target,
+        &format!("settings put secure always_on_vpn_app {package_name}"),
+    );
+
+    // 3. Grant App Usage Stats permission
+    let _ = device.run_shell(
+        device_target,
+        &format!("cmd appops set {package_name} GET_USAGE_STATS allow"),
+    );
+
+    // 4. Grant Display Over Other Apps permission
+    let _ = device.run_shell(
+        device_target,
+        &format!("cmd appops set {package_name} SYSTEM_ALERT_WINDOW allow"),
+    );
+
+    // 5. Grant Notification Listener access
+    let notification_component = format!("{package_name}/nielsen.confluence.nlsdk.Clsdk");
+    let _ = device.run_shell(
+        device_target,
+        &format!("cmd notification allow_listener {notification_component}"),
+    );
+    let _ = device.run_shell(
+        device_target,
+        &format!("settings put secure enabled_notification_listeners {notification_component}"),
+    );
+
+    info!(
+        "[SUCCESS] All ADB background permissions and always-on VPN configured for {package_name}!"
+    );
+    Ok(())
+}
+
 /// Grants the `ACTIVATE_VPN` app-op permission to the target package via ADB.
 ///
 /// # Errors

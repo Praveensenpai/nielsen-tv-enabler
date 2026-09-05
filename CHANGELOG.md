@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.1.3] - 2026-09-06
+
+Pure ADB background automation with zero UI disruption, always-on VPN configuration, and automated daily data sync!
+
+### 🌟 Key Highlights
+- **🤫 100% Pure ADB Background Execution**: Zero app launches and zero simulated UI clicks on your TV screen. Keeps your TV experience completely undisturbed.
+- **🛡️ Full Background Permissions & Always-On VPN**:
+  - Automatically configures Android system `always_on_vpn_app` so the VPN tunnel connects and persists in the background.
+  - Automatically grants `ACTIVATE_VPN`, `GET_USAGE_STATS`, `SYSTEM_ALERT_WINDOW`, and Notification Listener permissions via ADB.
+- **🔄 Once-A-Day Data Synchronization**:
+  - Automatically schedules and triggers Nielsen background data sync once every 24 hours.
+  - Enforces a 10-second delay gap (`sync_delay_secs = 10`) after turning on accessibility and permissions before initiating sync.
+  - Dispatches `WorkManager` `JobScheduler` jobs and broadcast intents (`HOURLY_INTENT`, `POSTING_INTENT`, `COLLECTION`).
+- **⚡ On-Demand CLI Flag**: Added `--sync` (alias `--sync-now`) to immediately trigger background data sync on demand.
+- **🧪 Unit Tests Added**: Unit tests for job ID dump parsing and daily sync tracking state.
+
+### 📦 Multi-Architecture Binaries
+- **x86_64 Linux**: `nielsen-tv-enabler-x86_64-unknown-linux-gnu.tar.gz`
+- **aarch64 / ARM64 Linux**: `nielsen-tv-enabler-aarch64-unknown-linux-gnu.tar.gz`
+
+### ⚡ Quick 1-Click Install
+```bash
+curl -fsSL https://raw.githubusercontent.com/Praveensenpai/nielsen-tv-enabler/main/install.sh | bash
+```
+
+---
+
 ## [v0.1.2] - 2026-09-06
 
 Autonomous VPN access permission granting and Android TV VPN dialog confirmation!

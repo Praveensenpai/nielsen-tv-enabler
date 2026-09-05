@@ -38,6 +38,10 @@ pub struct Args {
     #[arg(long, alias = "allow-vpn")]
     pub vpn: bool,
 
+    /// Trigger background data sync via ADB immediately without opening the app UI
+    #[arg(long, alias = "sync-now")]
+    pub sync: bool,
+
     /// Install and enable systemd user service
     #[arg(long)]
     pub install_service: bool,

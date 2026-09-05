@@ -3,6 +3,7 @@
 pub mod device;
 pub mod prompt;
 pub mod service;
+pub mod sync;
 pub mod vpn;
 
 pub use device::DeviceCommander;
