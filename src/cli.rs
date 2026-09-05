@@ -9,8 +9,7 @@ use std::path::PathBuf;
 #[derive(Parser, Debug)]
 #[command(
     name = "nielsen-tv-enabler",
-    author = "paisen",
-    version = "0.1.2",
+    version,
     about = "Keeps Nielsen Accessibility Service enabled on Android TV via ADB"
 )]
 pub struct Args {

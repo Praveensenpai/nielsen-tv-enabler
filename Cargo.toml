@@ -1,6 +1,6 @@
 [package]
 name = "nielsen-tv-enabler"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2024"
 description = "Keeps Nielsen Accessibility Service enabled on Android TV via ADB and auto-dismisses survey prompts"
 authors = ["Praveen Senpai <pvnt20@gmail.com>"]

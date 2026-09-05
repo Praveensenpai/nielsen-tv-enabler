@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.1.6] - 2026-09-06
+
+Fix CLI version flag to dynamically reflect Cargo package version!
+
+### 🌟 Key Highlights
+- **🏷️ Dynamic CLI Versioning**: Replaced static hardcoded version string in `Args` CLI struct with `#[command(version)]`, guaranteeing `-V` and `--version` always precisely reflect the crate's `Cargo.toml` release version.
+
+### 📦 Multi-Architecture Binaries
+- **x86_64 Linux**: `nielsen-tv-enabler-x86_64-unknown-linux-gnu.tar.gz`
+- **aarch64 / ARM64 Linux**: `nielsen-tv-enabler-aarch64-unknown-linux-gnu.tar.gz`
+
+### ⚡ Quick 1-Click Install
+```bash
+curl -fsSL https://raw.githubusercontent.com/Praveensenpai/nielsen-tv-enabler/main/install.sh | bash
+```
+
+---
+
 ## [v0.1.5] - 2026-09-06
 
 Safe hot-restarts for active daemons and seamless in-place updates without file-busy locks!
