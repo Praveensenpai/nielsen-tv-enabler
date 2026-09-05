@@ -62,7 +62,7 @@ fn default_service_component() -> String {
 }
 
 fn default_check_interval() -> u64 {
-    30
+    5
 }
 
 fn default_offline_retry() -> u64 {
