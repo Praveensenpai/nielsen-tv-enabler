@@ -154,5 +154,8 @@ fn reload_and_enable_service() -> Result<()> {
     if !enable.status.success() {
         bail!("`systemctl --user enable --now {SERVICE_NAME}` failed");
     }
+    let _ = Command::new("systemctl")
+        .args(["--user", "restart", SERVICE_NAME])
+        .output();
     Ok(())
 }

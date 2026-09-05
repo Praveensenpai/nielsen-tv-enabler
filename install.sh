@@ -54,8 +54,11 @@ echo -e "Downloading latest release from: ${BLUE}${DOWNLOAD_URL}${NC}..."
 if curl -fsSL "$DOWNLOAD_URL" -o "$TMP_DIR/$ARCHIVE_NAME"; then
     echo -e "Extracting archive..."
     tar -xzf "$TMP_DIR/$ARCHIVE_NAME" -C "$TMP_DIR"
-    cp "$TMP_DIR/$BINARY_NAME" "$INSTALL_DIR/$BINARY_NAME"
-    chmod +x "$INSTALL_DIR/$BINARY_NAME"
+    # Use install to safely overwrite running binary without "text file busy" (ETXTBSY)
+    install -m 755 "$TMP_DIR/$BINARY_NAME" "$INSTALL_DIR/$BINARY_NAME"
+    if [ -f "$HOME/.cargo/bin/$BINARY_NAME" ]; then
+        install -m 755 "$TMP_DIR/$BINARY_NAME" "$HOME/.cargo/bin/$BINARY_NAME"
+    fi
     echo -e "${GREEN}✓ Successfully installed ${BINARY_NAME} to ${INSTALL_DIR}/${BINARY_NAME}${NC}"
 else
     # Fallback: if cargo is available, build from source
@@ -81,6 +84,7 @@ fi
 # Automatically install and enable systemd user service
 echo -e "\n${BLUE}Setting up systemd user service...${NC}"
 "$INSTALL_DIR/$BINARY_NAME" --install-service
+systemctl --user restart "${BINARY_NAME}.service" 2>/dev/null || true
 
 echo -e "\n${GREEN}${BOLD}🎉 Installation Complete!${NC}"
 echo -e "The Nielsen TV Enabler daemon is now running in the background."
