@@ -18,7 +18,6 @@ jobs:
         include:
           - target: x86_64-unknown-linux-gnu
           - target: aarch64-unknown-linux-gnu
-          - target: x86_64-unknown-linux-musl
 
     steps:
       - name: Checkout code
@@ -34,6 +33,4 @@ jobs:
         with:
           bin: nielsen-tv-enabler
           target: ${{ matrix.target }}
-          tar: unix
-          zip: false
           token: ${{ secrets.GITHUB_TOKEN }}
