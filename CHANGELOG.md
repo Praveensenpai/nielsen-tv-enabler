@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.1.2] - 2026-09-06
+
+Autonomous VPN access permission granting and Android TV VPN dialog confirmation!
+
+### 🌟 Key Highlights
+- **🛡️ VPN Permission Granting**: Automatically grants `ACTIVATE_VPN` app-op permission via ADB to Nielsen apps (`com.nlsn.confluencetv`), preventing Android background service restrictions.
+- **✅ VPN Dialog Auto-Approval**: Monitors for Android's system VPN connection request dialog (`com.android.vpndialogs`), calculates the OK/Allow button coordinates, taps to confirm, and falls back to TV D-Pad keys (`DPAD_RIGHT` + `ENTER`).
+- **⚙️ Configurable & Command Line Modes**: Introduced `--vpn` / `--allow-vpn` CLI command and `auto_allow_vpn = true` config setting (enabled by default).
+- **🧪 Unit Tests Added**: Full unit test suite for VPN dialog XML parsing and coordinate extraction.
+
+### 📦 Multi-Architecture Binaries
+- **x86_64 Linux**: `nielsen-tv-enabler-x86_64-unknown-linux-gnu.tar.gz`
+- **aarch64 / ARM64 Linux**: `nielsen-tv-enabler-aarch64-unknown-linux-gnu.tar.gz`
+
+### ⚡ Quick 1-Click Install
+```bash
+curl -fsSL https://raw.githubusercontent.com/Praveensenpai/nielsen-tv-enabler/main/install.sh | bash
+```
+
+---
+
 ## [v0.1.1] - 2026-09-06
 
 Aesthetic quality improvements, architecture decoupling, and automated CI release generation!

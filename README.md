@@ -31,6 +31,7 @@ On many Android TVs, accessibility services (like Nielsen's `com.nlsn.confluence
 | Feature | Description |
 |---|---|
 | **🤖 Survey Auto-Dismissal** | Scans for *"Who is watching?"* dialogs, calculates checkbox coordinates, picks a member, clicks OK, and dismisses the overlay. |
+| **🛡️ VPN Access Auto-Approval** | Grants `ACTIVATE_VPN` app-op permission and automatically approves Android system VPN connection request dialogs (`com.android.vpndialogs`). |
 | **🔍 Subnet Auto-Scanning** | Scans all 254 hosts on your local subnet in parallel over port `5555` to automatically find your TV's IP. |
 | **⚡ Fast IP Caching** | Caches the last verified working IP for instant reconnects without redundant subnet sweeps. |
 | **💤 Graceful Backoff** | Backs off cleanly when the TV is asleep or turned off without spamming system logs. |
@@ -118,6 +119,9 @@ nielsen-tv-enabler --detect
 # Immediately dismiss 'Who is watching?' prompt if on screen
 nielsen-tv-enabler --dismiss-prompt
 
+# Grant VPN access permission and approve active VPN connection request dialog
+nielsen-tv-enabler --allow-vpn
+
 # Run in foreground with verbose debug logs
 nielsen-tv-enabler --daemon -v
 ```
@@ -152,6 +156,9 @@ subnet_cidr = ""
 
 # Automatically answer 'Who is watching?' survey dialogs
 auto_handle_who_is_watching = true
+
+# Automatically grant VPN permission and approve VPN connection request dialogs
+auto_allow_vpn = true
 ```
 
 ### CLI Overrides

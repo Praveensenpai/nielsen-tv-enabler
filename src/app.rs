@@ -6,7 +6,7 @@ pub use daemon::run_daemon;
 
 use crate::cli::Args;
 use crate::config::Config;
-use crate::domain::{prompt, service};
+use crate::domain::{prompt, service, vpn};
 use crate::infra::adb::{AdbClient, DeviceStatus};
 use crate::infra::scanner::Scanner;
 use crate::infra::systemd::SystemdManager;
@@ -41,6 +41,9 @@ pub fn run(args: &Args) -> Result<()> {
     }
     if args.dismiss_prompt {
         return run_dismiss_mode(&adb, &mut cfg, &config_path);
+    }
+    if args.vpn {
+        return run_vpn_mode(&adb, &mut cfg, &config_path);
     }
     if args.once {
         return run_once_mode(&adb, &mut cfg, &config_path);
@@ -135,6 +138,32 @@ fn run_once_mode(adb: &AdbClient, cfg: &mut Config, config_path: &Path) -> Resul
 
     if cfg.auto_handle_who_is_watching && prompt::handle_who_is_watching(adb, &target)? {
         info!("Auto-dismissed 'Who is watching?' dialog.");
+    }
+
+    if cfg.auto_allow_vpn {
+        let package = component
+            .split_once('/')
+            .map_or(vpn::DEFAULT_NIELSEN_PACKAGE, |(pkg, _)| pkg);
+        let _ = vpn::grant_vpn_appops(adb, &target, package);
+        let _ = vpn::handle_vpn_dialog(adb, &target);
+    }
+    Ok(())
+}
+
+/// Grants `ACTIVATE_VPN` appop permission and answers active VPN confirmation dialogs.
+fn run_vpn_mode(adb: &AdbClient, cfg: &mut Config, config_path: &Path) -> Result<()> {
+    let (target, component) = resolve_target_device(adb, cfg, config_path)?;
+    let package = component
+        .split_once('/')
+        .map_or(vpn::DEFAULT_NIELSEN_PACKAGE, |(pkg, _)| pkg);
+
+    vpn::grant_vpn_appops(adb, &target, package)?;
+    info!("Granted ACTIVATE_VPN appop permission to {package} on {target}.");
+
+    if vpn::handle_vpn_dialog(adb, &target)? {
+        info!("Confirmed active VPN connection request dialog.");
+    } else {
+        info!("No active VPN connection request dialog on screen.");
     }
     Ok(())
 }

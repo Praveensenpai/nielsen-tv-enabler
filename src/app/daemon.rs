@@ -1,7 +1,7 @@
 //! Continuous background daemon loop and TV network discovery.
 
 use crate::config::Config;
-use crate::domain::{prompt, service};
+use crate::domain::{prompt, service, vpn};
 use crate::infra::adb::{AdbClient, DeviceStatus};
 use crate::infra::scanner::Scanner;
 use anyhow::{Result, bail};
@@ -160,5 +160,13 @@ fn handle_active_cycle(
 
     if cfg.auto_handle_who_is_watching {
         let _ = prompt::handle_who_is_watching(adb, target);
+    }
+
+    if cfg.auto_allow_vpn {
+        let package = component
+            .split_once('/')
+            .map_or(vpn::DEFAULT_NIELSEN_PACKAGE, |(pkg, _)| pkg);
+        let _ = vpn::grant_vpn_appops(adb, target, package);
+        let _ = vpn::handle_vpn_dialog(adb, target);
     }
 }

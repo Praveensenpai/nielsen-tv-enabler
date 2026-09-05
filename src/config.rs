@@ -46,6 +46,14 @@ pub struct Config {
     /// Automatically dismiss the 'Who is watching?' dialog by randomly selecting a member.
     #[serde(default = "default_auto_handle_who_is_watching")]
     pub auto_handle_who_is_watching: bool,
+
+    /// Automatically grant VPN permission and approve VPN connection request dialogs.
+    #[serde(default = "default_auto_allow_vpn")]
+    pub auto_allow_vpn: bool,
+}
+
+fn default_auto_allow_vpn() -> bool {
+    true
 }
 
 fn default_auto_handle_who_is_watching() -> bool {
@@ -84,6 +92,7 @@ impl Default for Config {
             subnet_cidr: None,
             adb_path: None,
             auto_handle_who_is_watching: default_auto_handle_who_is_watching(),
+            auto_allow_vpn: default_auto_allow_vpn(),
         }
     }
 }

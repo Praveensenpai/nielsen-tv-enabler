@@ -10,7 +10,7 @@ use std::path::PathBuf;
 #[command(
     name = "nielsen-tv-enabler",
     author = "paisen",
-    version = "0.1.1",
+    version = "0.1.2",
     about = "Keeps Nielsen Accessibility Service enabled on Android TV via ADB"
 )]
 pub struct Args {
@@ -33,6 +33,10 @@ pub struct Args {
     /// Check and answer 'Who is watching?' dialog immediately (selects member + clicks OK)
     #[arg(long, alias = "answer-prompt")]
     pub dismiss_prompt: bool,
+
+    /// Grant VPN permission and approve any active VPN connection request dialog immediately
+    #[arg(long, alias = "allow-vpn")]
+    pub vpn: bool,
 
     /// Install and enable systemd user service
     #[arg(long)]
