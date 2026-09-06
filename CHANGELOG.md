@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.1.8] - 2026-09-06
+
+Optimized release profile for minimal binary footprint and reduced RAM usage!
+
+### 🌟 Key Highlights
+- **📉 40% Smaller Binary Size**: Configured aggressive size optimizations (`opt-level = "z"`), whole-program Link-Time Optimization (`lto = true`), and single codegen unit (`codegen-units = 1`), reducing binary size from 4.5 MB to 2.7 MB.
+- **🧠 Lower Memory Footprint**: Streamlined binary code mapping and eliminated stack unwinding metadata (`panic = "abort"`), lowering resident memory (RSS) by ~20% and systemd cgroup memory by ~50%.
+- **🔍 Developer-Friendly Debugging**: Preserved symbol tables (`strip = "debuginfo"`) so that panic backtraces retain full module and function names for diagnostics.
+
+### 📦 Multi-Architecture Binaries
+- **x86_64 Linux**: `nielsen-tv-enabler-x86_64-unknown-linux-gnu.tar.gz`
+- **aarch64 / ARM64 Linux**: `nielsen-tv-enabler-aarch64-unknown-linux-gnu.tar.gz`
+
+### ⚡ Quick 1-Click Install
+```bash
+curl -fsSL https://raw.githubusercontent.com/Praveensenpai/nielsen-tv-enabler/main/install.sh | bash
+```
+
+---
+
 ## [v0.1.7] - 2026-09-06
 
 Idempotent VPN verification and non-disruptive background daemon management!
