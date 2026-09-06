@@ -8,6 +8,72 @@ use regex::Regex;
 /// Default Android TV package name for Nielsen panel app.
 pub const DEFAULT_NIELSEN_PACKAGE: &str = "com.nlsn.confluencetv";
 
+/// Checks whether a VPN tunnel network interface (e.g. `tun0`) is currently up on the device.
+///
+/// # Errors
+/// Returns an error if querying device network interfaces fails.
+pub fn is_vpn_tunnel_active(device: &impl DeviceCommander, device_target: &str) -> Result<bool> {
+    let output = device.run_shell(device_target, "ip -o link show")?;
+    let active = output.lines().any(|line| {
+        let lower = line.to_lowercase();
+        lower.contains("tun")
+            && (lower.contains("<up") || lower.contains(",up") || lower.contains("state up"))
+    });
+    Ok(active)
+}
+
+/// Checks if always-on VPN is configured for the given package in Android secure settings.
+///
+/// # Errors
+/// Returns an error if querying device settings fails.
+pub fn is_always_on_vpn_configured(
+    device: &impl DeviceCommander,
+    device_target: &str,
+    package_name: &str,
+) -> Result<bool> {
+    let output = device.run_shell(device_target, "settings get secure always_on_vpn_app")?;
+    Ok(output.trim() == package_name)
+}
+
+/// Checks if VPN is already active or configured for the specified package.
+///
+/// # Errors
+/// Returns an error if device communication fails.
+pub fn is_vpn_active(
+    device: &impl DeviceCommander,
+    device_target: &str,
+    package_name: &str,
+) -> Result<bool> {
+    if is_vpn_tunnel_active(device, device_target).unwrap_or(false) {
+        return Ok(true);
+    }
+    is_always_on_vpn_configured(device, device_target, package_name)
+}
+
+/// Ensures that VPN is enabled for the target package if currently disabled.
+/// If VPN is already active or always-on is configured, does not touch or alter the VPN.
+///
+/// Returns `Ok(true)` if VPN configuration was applied, or `Ok(false)` if already active.
+///
+/// # Errors
+/// Returns an error if executing device shell commands fails.
+pub fn ensure_vpn_enabled(
+    device: &impl DeviceCommander,
+    device_target: &str,
+    package_name: &str,
+) -> Result<bool> {
+    if is_vpn_active(device, device_target, package_name)? {
+        debug!("VPN is already active or configured for {package_name} on {device_target}");
+        let _ = handle_vpn_dialog(device, device_target);
+        return Ok(false);
+    }
+
+    info!("VPN is disabled or unconfigured for {package_name} on {device_target}. Enabling...");
+    grant_all_background_permissions(device, device_target, package_name)?;
+    let _ = handle_vpn_dialog(device, device_target);
+    Ok(true)
+}
+
 /// Grants all required background permissions (VPN, usage stats, alert window, notification listener)
 /// and configures always-on VPN purely via ADB without touching or opening the app UI.
 ///
@@ -173,5 +239,114 @@ mod tests {
     fn test_extract_vpn_ok_button_missing() {
         let xml = r#"<node text="Cancel" resource-id="android:id/button2" bounds="[100,100][200,200]" />"#;
         assert_eq!(extract_vpn_ok_button(xml), None);
+    }
+
+    #[derive(Default)]
+    struct FakeDevice {
+        responses: std::sync::RwLock<std::collections::HashMap<String, String>>,
+        executed: std::sync::RwLock<Vec<String>>,
+    }
+
+    impl FakeDevice {
+        fn set(&self, cmd: &str, resp: &str) {
+            self.responses
+                .write()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .insert(cmd.to_string(), resp.to_string());
+        }
+
+        fn ran(&self, pattern: &str) -> bool {
+            self.executed
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .iter()
+                .any(|c| c.contains(pattern))
+        }
+    }
+
+    impl DeviceCommander for FakeDevice {
+        fn run_shell(&self, _target: &str, command: &str) -> Result<String> {
+            self.executed
+                .write()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push(command.to_string());
+            let map = self
+                .responses
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            Ok(map.get(command).cloned().unwrap_or_default())
+        }
+    }
+
+    #[test]
+    fn test_is_vpn_tunnel_active() -> Result<()> {
+        let fake = FakeDevice::default();
+        fake.set(
+            "ip -o link show",
+            "1: lo: <LOOPBACK,UP,LOWER_UP>\n2: tun0: <POINTOPOINT,UP,LOWER_UP>\n",
+        );
+        assert!(is_vpn_tunnel_active(&fake, "target")?);
+
+        fake.set("ip -o link show", "1: lo: <LOOPBACK,UP,LOWER_UP>\n");
+        assert!(!is_vpn_tunnel_active(&fake, "target")?);
+        Ok(())
+    }
+
+    #[test]
+    fn test_is_always_on_vpn_configured() -> Result<()> {
+        let fake = FakeDevice::default();
+        fake.set(
+            "settings get secure always_on_vpn_app",
+            "com.nlsn.confluencetv\n",
+        );
+        assert!(is_always_on_vpn_configured(
+            &fake,
+            "target",
+            "com.nlsn.confluencetv"
+        )?);
+
+        fake.set("settings get secure always_on_vpn_app", "null\n");
+        assert!(!is_always_on_vpn_configured(
+            &fake,
+            "target",
+            "com.nlsn.confluencetv"
+        )?);
+        Ok(())
+    }
+
+    #[test]
+    fn test_ensure_vpn_enabled_leaves_active_alone() -> Result<()> {
+        let fake = FakeDevice::default();
+        fake.set(
+            "settings get secure always_on_vpn_app",
+            "com.nlsn.confluencetv\n",
+        );
+        fake.set(
+            "dumpsys window | grep -E 'mCurrentFocus|mFocusedApp'",
+            "mCurrentFocus=null",
+        );
+
+        let modified = ensure_vpn_enabled(&fake, "target", "com.nlsn.confluencetv")?;
+        assert!(!modified);
+        assert!(!fake.ran("settings put"));
+        assert!(!fake.ran("ACTIVATE_VPN allow"));
+        Ok(())
+    }
+
+    #[test]
+    fn test_ensure_vpn_enabled_activates_when_disabled() -> Result<()> {
+        let fake = FakeDevice::default();
+        fake.set("settings get secure always_on_vpn_app", "null\n");
+        fake.set("ip -o link show", "1: lo: <LOOPBACK,UP,LOWER_UP>\n");
+        fake.set(
+            "dumpsys window | grep -E 'mCurrentFocus|mFocusedApp'",
+            "mCurrentFocus=null",
+        );
+
+        let modified = ensure_vpn_enabled(&fake, "target", "com.nlsn.confluencetv")?;
+        assert!(modified);
+        assert!(fake.ran("settings put secure always_on_vpn_app com.nlsn.confluencetv"));
+        assert!(fake.ran("cmd appops set com.nlsn.confluencetv ACTIVATE_VPN allow"));
+        Ok(())
     }
 }

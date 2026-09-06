@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.1.7] - 2026-09-06
+
+Idempotent VPN verification and non-disruptive background daemon management!
+
+### 🌟 Key Highlights
+- **🛡️ Idempotent VPN Verification**: Added `is_vpn_tunnel_active`, `is_always_on_vpn_configured`, and `is_vpn_active` to inspect whether a VPN interface (`tun0`) or always-on setting is already running.
+- **✨ Non-Disruptive Daemon Cycles**: Leaves active VPN tunnels completely untouched without repeatedly re-issuing settings or appop commands every loop cycle.
+- **🔌 Automatic Activation When Disabled**: Activates always-on VPN and background permissions only if the VPN is disabled or unconfigured, and auto-confirms pending VPN authorization dialogs.
+- **🧪 Comprehensive Unit Testing**: Added unit tests verifying network interface checks, settings queries, and idempotency guarantees.
+
+### 📦 Multi-Architecture Binaries
+- **x86_64 Linux**: `nielsen-tv-enabler-x86_64-unknown-linux-gnu.tar.gz`
+- **aarch64 / ARM64 Linux**: `nielsen-tv-enabler-aarch64-unknown-linux-gnu.tar.gz`
+
+### ⚡ Quick 1-Click Install
+```bash
+curl -fsSL https://raw.githubusercontent.com/Praveensenpai/nielsen-tv-enabler/main/install.sh | bash
+```
+
+---
+
 ## [v0.1.6] - 2026-09-06
 
 Fix CLI version flag to dynamically reflect Cargo package version!

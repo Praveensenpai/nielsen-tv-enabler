@@ -173,8 +173,7 @@ fn handle_active_cycle(
         .map_or(vpn::DEFAULT_NIELSEN_PACKAGE, |(pkg, _)| pkg);
 
     if cfg.auto_allow_vpn {
-        let _ = vpn::grant_all_background_permissions(adb, target, package);
-        let _ = vpn::handle_vpn_dialog(adb, target);
+        let _ = vpn::ensure_vpn_enabled(adb, target, package);
     }
 
     if cfg.auto_handle_who_is_watching {

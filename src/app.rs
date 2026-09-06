@@ -144,8 +144,7 @@ fn run_once_mode(adb: &AdbClient, cfg: &mut Config, config_path: &Path) -> Resul
         .map_or(vpn::DEFAULT_NIELSEN_PACKAGE, |(pkg, _)| pkg);
 
     if cfg.auto_allow_vpn {
-        let _ = vpn::grant_all_background_permissions(adb, &target, package);
-        let _ = vpn::handle_vpn_dialog(adb, &target);
+        let _ = vpn::ensure_vpn_enabled(adb, &target, package);
     }
 
     if cfg.auto_handle_who_is_watching && prompt::handle_who_is_watching(adb, &target)? {
@@ -170,11 +169,11 @@ fn run_vpn_mode(adb: &AdbClient, cfg: &mut Config, config_path: &Path) -> Result
         .split_once('/')
         .map_or(vpn::DEFAULT_NIELSEN_PACKAGE, |(pkg, _)| pkg);
 
-    vpn::grant_all_background_permissions(adb, &target, package)?;
-    if vpn::handle_vpn_dialog(adb, &target)? {
-        info!("Confirmed active VPN connection request dialog.");
+    let changed = vpn::ensure_vpn_enabled(adb, &target, package)?;
+    if changed {
+        info!("Configured and enabled VPN for {package}.");
     } else {
-        info!("No active VPN connection request dialog on screen.");
+        info!("VPN was already active and configured; left running untouched.");
     }
     Ok(())
 }
