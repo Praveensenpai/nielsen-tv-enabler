@@ -39,6 +39,16 @@ esac
 
 echo -e "Detected: ${GREEN}${OS} (${ARCH})${NC} -> Target: ${GREEN}${TARGET}${NC}"
 
+# Resolve latest release version tag
+LATEST_TAG="$(curl -sI "https://github.com/${REPO}/releases/latest" | grep -i '^location:' | sed 's/.*\///' | tr -d '\r\n' || true)"
+if [ -n "$LATEST_TAG" ]; then
+    VERSION="$LATEST_TAG"
+    echo -e "Target Release: ${GREEN}${BOLD}${VERSION}${NC}"
+else
+    VERSION="latest"
+    echo -e "Target Release: ${GREEN}${BOLD}latest${NC}"
+fi
+
 # Create install directory
 mkdir -p "$INSTALL_DIR"
 export PATH="$INSTALL_DIR:$PATH"
@@ -50,7 +60,7 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 ARCHIVE_NAME="${BINARY_NAME}-${TARGET}.tar.gz"
 DOWNLOAD_URL="https://github.com/${REPO}/releases/latest/download/${ARCHIVE_NAME}"
 
-echo -e "Downloading latest release from: ${BLUE}${DOWNLOAD_URL}${NC}..."
+echo -e "Downloading ${BOLD}${BINARY_NAME} (${VERSION})${NC} from: ${BLUE}${DOWNLOAD_URL}${NC}..."
 if curl -fsSL "$DOWNLOAD_URL" -o "$TMP_DIR/$ARCHIVE_NAME"; then
     echo -e "Extracting archive..."
     tar -xzf "$TMP_DIR/$ARCHIVE_NAME" -C "$TMP_DIR"
@@ -59,14 +69,16 @@ if curl -fsSL "$DOWNLOAD_URL" -o "$TMP_DIR/$ARCHIVE_NAME"; then
     if [ -f "$HOME/.cargo/bin/$BINARY_NAME" ]; then
         install -m 755 "$TMP_DIR/$BINARY_NAME" "$HOME/.cargo/bin/$BINARY_NAME"
     fi
-    echo -e "${GREEN}✓ Successfully installed ${BINARY_NAME} to ${INSTALL_DIR}/${BINARY_NAME}${NC}"
+    INSTALLED_VER="$("$INSTALL_DIR/$BINARY_NAME" --version 2>/dev/null || echo "$BINARY_NAME $VERSION")"
+    echo -e "${GREEN}✓ Successfully installed ${BOLD}${INSTALLED_VER}${NC} to ${INSTALL_DIR}/${BINARY_NAME}"
 else
     # Fallback: if cargo is available, build from source
     echo -e "${YELLOW}Could not download prebuilt binary. Checking if cargo is installed...${NC}"
     if command -v cargo >/dev/null 2>&1; then
         echo -e "Building from source via cargo..."
         cargo install --git "https://github.com/${REPO}.git"
-        echo -e "${GREEN}✓ Successfully installed via cargo!${NC}"
+        INSTALLED_VER="$("$HOME/.cargo/bin/$BINARY_NAME" --version 2>/dev/null || echo "$BINARY_NAME (source)")"
+        echo -e "${GREEN}✓ Successfully installed ${BOLD}${INSTALLED_VER}${NC} via cargo!${NC}"
     else
         echo -e "${RED}Failed to download binary and cargo is not installed.${NC}"
         exit 1
@@ -82,11 +94,11 @@ if ! command -v adb >/dev/null 2>&1 && [ ! -f "$HOME/Android/Sdk/platform-tools/
 fi
 
 # Automatically install and enable systemd user service
-echo -e "\n${BLUE}Setting up systemd user service...${NC}"
+echo -e "\n${BLUE}Setting up systemd user service for ${BOLD}${INSTALLED_VER}${NC}...${NC}"
 "$INSTALL_DIR/$BINARY_NAME" --install-service
 systemctl --user restart "${BINARY_NAME}.service" 2>/dev/null || true
 
-echo -e "\n${GREEN}${BOLD}🎉 Installation Complete!${NC}"
+echo -e "\n${GREEN}${BOLD}🎉 Installation Complete! (${INSTALLED_VER})${NC}"
 echo -e "The Nielsen TV Enabler daemon is now running in the background."
 echo -e ""
 echo -e "Helpful commands:"
