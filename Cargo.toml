@@ -34,8 +34,8 @@ expect_used = "deny"
 
 [profile.release]
 opt-level = "z"
-lto = true
-codegen-units = 1
+lto = "thin"
+codegen-units = 4
 panic = "abort"
 strip = "debuginfo"
 
