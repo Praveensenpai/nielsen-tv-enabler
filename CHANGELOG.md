@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.1.9] - 2026-09-07
+
+Actively verify Android accessibility service bound status and auto-recover from dormant states!
+
+### 🌟 Key Highlights
+- **🔍 Active Service Bound Verification**: Inspects `dumpsys accessibility` to verify that Nielsen's accessibility service is actively in `Bound services`, preventing false-positive status when settings are present but Android system server hasn't bound the service.
+- **🔄 Autonomous Re-bind Recovery**: Detects dormant/unbound accessibility states and executes an atomic toggle cycle (`settings put secure enabled_accessibility_services`) and wake-up broadcast to force Android to re-bind the service.
+- **🧱 Modular Architecture**: Cleanly separated service auto-detection into `domain::detect` to maintain strict module boundaries and file size limits (<350 lines).
+- **🧪 Comprehensive Unit Testing**: Added unit test coverage for `dumpsys accessibility` bound parsing, match detection, and re-binding workflows.
+
+### 📦 Multi-Architecture Binaries
+- **x86_64 Linux**: `nielsen-tv-enabler-x86_64-unknown-linux-gnu.tar.gz`
+- **aarch64 / ARM64 Linux**: `nielsen-tv-enabler-aarch64-unknown-linux-gnu.tar.gz`
+
+### ⚡ Quick 1-Click Install
+```bash
+curl -fsSL https://raw.githubusercontent.com/Praveensenpai/nielsen-tv-enabler/main/install.sh | bash
+```
+
 ---
 
 ## [v0.1.8] - 2026-09-06

@@ -1,9 +1,9 @@
 //! Domain logic for inspecting and keeping Nielsen Accessibility service enabled.
 
 use crate::domain::DeviceCommander;
+pub use crate::domain::detect::detect_nielsen_service;
 use anyhow::Result;
 use log::{debug, info, warn};
-use regex::Regex;
 
 /// Queries the currently enabled accessibility services list from Android settings.
 ///
@@ -42,30 +42,87 @@ pub fn is_global_accessibility_enabled(
     Ok(output.trim() == "1")
 }
 
-/// Auto-detects the installed Nielsen accessibility service component name.
-///
-/// # Errors
-/// Returns an error if communicating with the device fails.
-pub fn detect_nielsen_service(
-    device: &impl DeviceCommander,
-    device_target: &str,
-) -> Result<Option<String>> {
-    info!("Attempting to auto-detect Nielsen accessibility service on {device_target}...");
-
-    if let Some(candidate) = detect_from_dumpsys(device, device_target) {
-        return Ok(Some(candidate));
+/// Checks whether a service component identifier matches the target Nielsen component.
+#[must_use]
+pub fn is_nielsen_match(service: &str, nielsen_component: &str) -> bool {
+    if service == nielsen_component {
+        return true;
     }
-    if let Some(candidate) = detect_from_cmd(device, device_target) {
-        return Ok(Some(candidate));
-    }
-    if let Some(candidate) = detect_from_packages(device, device_target) {
-        return Ok(Some(candidate));
-    }
-
-    Ok(None)
+    let s_lower = service.to_lowercase();
+    let n_lower = nielsen_component.to_lowercase();
+    (s_lower.contains("nielsen") || s_lower.contains("nlsn"))
+        && (n_lower.contains("nielsen") || n_lower.contains("nlsn"))
 }
 
-/// Ensures that the Nielsen accessibility service is enabled while preserving other services.
+/// Checks if the Nielsen accessibility service is actively bound in Android's accessibility manager.
+#[must_use]
+pub fn is_service_bound(
+    device: &impl DeviceCommander,
+    device_target: &str,
+    nielsen_component: &str,
+) -> bool {
+    let Ok(dumpsys) = device.run_shell(device_target, "dumpsys accessibility") else {
+        return false;
+    };
+    parse_is_service_bound(&dumpsys, nielsen_component)
+}
+
+/// Parses `dumpsys accessibility` output to determine if the service is currently in `Bound services`.
+#[must_use]
+pub fn parse_is_service_bound(dumpsys: &str, nielsen_component: &str) -> bool {
+    let Some(start_idx) = dumpsys.find("Bound services:{") else {
+        return false;
+    };
+    let after = &dumpsys[start_idx + "Bound services:{".len()..];
+    let Some(end_idx) = after.find('}') else {
+        return false;
+    };
+    let bound_section = &after[..end_idx];
+    if bound_section.trim().is_empty() {
+        return false;
+    }
+
+    if bound_section.contains(nielsen_component) {
+        return true;
+    }
+
+    let pkg = nielsen_component
+        .split_once('/')
+        .map_or(nielsen_component, |(p, _)| p);
+    if bound_section.contains(pkg) {
+        return true;
+    }
+
+    let lower = bound_section.to_lowercase();
+    lower.contains("nlsn") || lower.contains("nielsen") || lower.contains("confluence")
+}
+
+/// Forces an accessibility toggle cycle when listed in settings but not bound by Android system server.
+fn force_rebind_toggle(
+    device: &impl DeviceCommander,
+    device_target: &str,
+    other_services: &[String],
+    nielsen_component: &str,
+) -> Result<()> {
+    info!("Nielsen service listed in settings but not bound. Forcing re-bind toggle...");
+    let temp_str = other_services.join(":");
+    device.run_shell(
+        device_target,
+        &format!("settings put secure enabled_accessibility_services \"{temp_str}\""),
+    )?;
+    std::thread::sleep(std::time::Duration::from_millis(200));
+
+    let pkg = nielsen_component
+        .split_once('/')
+        .map_or(nielsen_component, |(p, _)| p);
+    let _ = device.run_shell(
+        device_target,
+        &format!("am broadcast -a com.android.imi.HOURLY_INTENT -p {pkg}"),
+    );
+    Ok(())
+}
+
+/// Ensures that the Nielsen accessibility service is enabled and bound while preserving other services.
 ///
 /// # Errors
 /// Returns an error if running settings or verification commands fails.
@@ -76,25 +133,30 @@ pub fn ensure_accessibility_enabled(
 ) -> Result<bool> {
     let current_services = get_enabled_services(device, device_target)?;
     let global_enabled = is_global_accessibility_enabled(device, device_target)?;
+    let service_bound = is_service_bound(device, device_target, nielsen_component);
 
-    let already_present = current_services.iter().any(|s| {
-        s == nielsen_component
-            || ((s.to_lowercase().contains("nielsen") || s.to_lowercase().contains("nlsn"))
-                && (nielsen_component.to_lowercase().contains("nielsen")
-                    || nielsen_component.to_lowercase().contains("nlsn")))
-    });
+    let already_present = current_services
+        .iter()
+        .any(|s| is_nielsen_match(s, nielsen_component));
 
-    if already_present && global_enabled {
-        debug!("Nielsen accessibility service is already enabled ({nielsen_component})");
+    if already_present && global_enabled && service_bound {
+        debug!("Nielsen accessibility service is already enabled and bound ({nielsen_component})");
         return Ok(false);
     }
 
-    let mut new_services = current_services;
-    if !new_services.iter().any(|s| s == nielsen_component) {
-        new_services.push(nielsen_component.to_string());
+    let other_services: Vec<String> = current_services
+        .into_iter()
+        .filter(|s| !is_nielsen_match(s, nielsen_component))
+        .collect();
+
+    if already_present && !service_bound {
+        force_rebind_toggle(device, device_target, &other_services, nielsen_component)?;
     }
 
+    let mut new_services = other_services;
+    new_services.push(nielsen_component.to_string());
     let new_services_str = new_services.join(":");
+
     info!(
         "Enabling Nielsen accessibility service (setting enabled_accessibility_services='{new_services_str}')..."
     );
@@ -111,68 +173,7 @@ pub fn ensure_accessibility_enabled(
     verify_enabled_state(device, device_target, nielsen_component)
 }
 
-/// Searches dumpsys accessibility for Nielsen components.
-fn detect_from_dumpsys(device: &impl DeviceCommander, device_target: &str) -> Option<String> {
-    let dumpsys = device
-        .run_shell(device_target, "dumpsys accessibility")
-        .ok()?;
-    let regex =
-        Regex::new(r"(?i)\b([a-zA-Z0-9._]*(?:nlsn|nielsen)[a-zA-Z0-9._]*/[a-zA-Z0-9._]+)\b")
-            .ok()?;
-    if let Some(cap) = regex.captures_iter(&dumpsys).next() {
-        let candidate = cap[1].to_string();
-        info!("Found Nielsen accessibility component from dumpsys: {candidate}");
-        return Some(candidate);
-    }
-    None
-}
-
-/// Searches `cmd accessibility get-installed-accessibility-services` for Nielsen components.
-fn detect_from_cmd(device: &impl DeviceCommander, device_target: &str) -> Option<String> {
-    let cmd_out = device
-        .run_shell(
-            device_target,
-            "cmd accessibility get-installed-accessibility-services",
-        )
-        .ok()?;
-    let regex =
-        Regex::new(r"(?i)\b([a-zA-Z0-9._]*(?:nlsn|nielsen)[a-zA-Z0-9._]*/[a-zA-Z0-9._]+)\b")
-            .ok()?;
-    let cap = regex.captures(&cmd_out)?;
-    let candidate = cap[1].to_string();
-    info!("Found Nielsen accessibility component from cmd: {candidate}");
-    Some(candidate)
-}
-
-/// Searches package manager and dumpsys package for Nielsen services.
-fn detect_from_packages(device: &impl DeviceCommander, device_target: &str) -> Option<String> {
-    let pm_out = device.run_shell(device_target, "pm list packages").ok()?;
-    for line in pm_out.lines() {
-        let pkg = line.trim().trim_start_matches("package:").trim();
-        let lower = pkg.to_lowercase();
-        if !lower.contains("nielsen") && !lower.contains("nlsn") {
-            continue;
-        }
-
-        info!("Found Nielsen package: {pkg}");
-        if let Ok(pkg_dump) = device.run_shell(device_target, &format!("dumpsys package {pkg}")) {
-            let service_regex =
-                Regex::new(&format!(r"(?i)\b({}/[a-zA-Z0-9._]+)\b", regex::escape(pkg))).ok()?;
-            if let Some(cap) = service_regex.captures_iter(&pkg_dump).find(|cap| {
-                let candidate = cap[1].to_lowercase();
-                candidate.contains("service") || candidate.contains("accessibility")
-            }) {
-                let candidate = cap[1].to_string();
-                info!("Found Nielsen accessibility service: {candidate}");
-                return Some(candidate);
-            }
-        }
-        return Some(format!("{pkg}/.AccessibilityService"));
-    }
-    None
-}
-
-/// Verifies that the accessibility service is properly enabled.
+/// Verifies that the accessibility service is properly enabled and active.
 fn verify_enabled_state(
     device: &impl DeviceCommander,
     device_target: &str,
@@ -181,7 +182,10 @@ fn verify_enabled_state(
     let verified_services = get_enabled_services(device, device_target)?;
     let verified_global = is_global_accessibility_enabled(device, device_target)?;
 
-    let is_ok = verified_services.iter().any(|s| s == nielsen_component) && verified_global;
+    let is_ok = verified_services
+        .iter()
+        .any(|s| is_nielsen_match(s, nielsen_component))
+        && verified_global;
     if is_ok {
         info!("Successfully enabled Nielsen accessibility service on {device_target}!");
         Ok(true)
@@ -258,6 +262,88 @@ mod tests {
 
         fake.set_response("settings get secure accessibility_enabled", "0\n");
         assert!(!is_global_accessibility_enabled(&fake, "target")?);
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_is_service_bound_empty() {
+        let dump = "User state[\n     Bound services:{}\n     Enabled services:{{com.nlsn/svc}}\n]";
+        assert!(!parse_is_service_bound(dump, "com.nlsn/svc"));
+    }
+
+    #[test]
+    fn test_parse_is_service_bound_confluence() {
+        let dump = "User state[\n     Bound services:{Service[label=ConfluenceTV, feedbackType[FEEDBACK_GENERIC]]}\n]";
+        assert!(parse_is_service_bound(
+            dump,
+            "com.nlsn.confluencetv/nielsen.imi.acsdk.services.NxtLogService"
+        ));
+    }
+
+    #[test]
+    fn test_parse_is_service_bound_exact_component() {
+        let dump = "User state[\n     Bound services:{com.nlsn.confluencetv/nielsen.imi.acsdk.services.NxtLogService}\n]";
+        assert!(parse_is_service_bound(
+            dump,
+            "com.nlsn.confluencetv/nielsen.imi.acsdk.services.NxtLogService"
+        ));
+    }
+
+    #[test]
+    fn test_parse_is_service_bound_other_service() {
+        let dump = "User state[\n     Bound services:{Service[label=TalkBack]}\n]";
+        assert!(!parse_is_service_bound(
+            dump,
+            "com.nlsn.confluencetv/nielsen.imi.acsdk.services.NxtLogService"
+        ));
+    }
+
+    #[test]
+    fn test_is_nielsen_match() {
+        assert!(is_nielsen_match(
+            "com.nlsn.confluencetv/nielsen.imi.acsdk.services.NxtLogService",
+            "com.nlsn.confluencetv/nielsen.imi.acsdk.services.NxtLogService"
+        ));
+        assert!(is_nielsen_match(
+            "com.nlsn.confluencetv/nlsn.service",
+            "com.nielsen.app/service"
+        ));
+        assert!(!is_nielsen_match(
+            "com.google.android.marvin.talkback/.TalkBackService",
+            "com.nlsn.confluencetv/nielsen.imi.acsdk.services.NxtLogService"
+        ));
+    }
+
+    #[test]
+    fn test_ensure_accessibility_rebinds_when_unbound() -> Result<()> {
+        let fake = FakeDevice::new();
+        let component = "com.nlsn.confluencetv/nielsen.imi.acsdk.services.NxtLogService";
+        fake.set_response(
+            "settings get secure enabled_accessibility_services",
+            component,
+        );
+        fake.set_response("settings get secure accessibility_enabled", "1\n");
+        fake.set_response("dumpsys accessibility", "Bound services:{}\n");
+        let changed = ensure_accessibility_enabled(&fake, "target", component)?;
+        assert!(changed);
+        Ok(())
+    }
+
+    #[test]
+    fn test_ensure_accessibility_skips_when_bound() -> Result<()> {
+        let fake = FakeDevice::new();
+        let component = "com.nlsn.confluencetv/nielsen.imi.acsdk.services.NxtLogService";
+        fake.set_response(
+            "settings get secure enabled_accessibility_services",
+            component,
+        );
+        fake.set_response("settings get secure accessibility_enabled", "1\n");
+        fake.set_response(
+            "dumpsys accessibility",
+            "Bound services:{Service[label=ConfluenceTV]}\n",
+        );
+        let changed = ensure_accessibility_enabled(&fake, "target", component)?;
+        assert!(!changed);
         Ok(())
     }
 }
