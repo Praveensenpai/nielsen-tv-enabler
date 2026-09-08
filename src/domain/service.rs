@@ -67,34 +67,45 @@ pub fn is_service_bound(
     parse_is_service_bound(&dumpsys, nielsen_component)
 }
 
-/// Parses `dumpsys accessibility` output to determine if the service is currently in `Bound services`.
-#[must_use]
-pub fn parse_is_service_bound(dumpsys: &str, nielsen_component: &str) -> bool {
-    let Some(start_idx) = dumpsys.find("Bound services:{") else {
+fn section_contains_component(dumpsys: &str, header: &str, nielsen_component: &str) -> bool {
+    let Some(start_idx) = dumpsys.find(header) else {
         return false;
     };
-    let after = &dumpsys[start_idx + "Bound services:{".len()..];
+    let after = &dumpsys[start_idx + header.len()..];
     let Some(end_idx) = after.find('}') else {
         return false;
     };
-    let bound_section = &after[..end_idx];
-    if bound_section.trim().is_empty() {
+    let section = &after[..end_idx];
+    let cleaned = section.trim_matches(|c: char| c == '{' || c == '}' || c.is_whitespace());
+    if cleaned.is_empty() {
         return false;
     }
 
-    if bound_section.contains(nielsen_component) {
+    if cleaned.contains(nielsen_component) {
         return true;
     }
 
     let pkg = nielsen_component
         .split_once('/')
         .map_or(nielsen_component, |(p, _)| p);
-    if bound_section.contains(pkg) {
+    if cleaned.contains(pkg) {
         return true;
     }
 
-    let lower = bound_section.to_lowercase();
+    let lower = cleaned.to_lowercase();
     lower.contains("nlsn") || lower.contains("nielsen") || lower.contains("confluence")
+}
+
+/// Parses `dumpsys accessibility` output to determine if the service is currently in `Bound services`.
+#[must_use]
+pub fn parse_is_service_bound(dumpsys: &str, nielsen_component: &str) -> bool {
+    section_contains_component(dumpsys, "Bound services:{", nielsen_component)
+}
+
+/// Parses `dumpsys accessibility` output to determine if the service is currently in `Binding services`.
+#[must_use]
+pub fn parse_is_service_binding(dumpsys: &str, nielsen_component: &str) -> bool {
+    section_contains_component(dumpsys, "Binding services:{", nielsen_component)
 }
 
 /// Forces an accessibility toggle cycle when listed in settings but not bound by Android system server.
@@ -133,7 +144,11 @@ pub fn ensure_accessibility_enabled(
 ) -> Result<bool> {
     let current_services = get_enabled_services(device, device_target)?;
     let global_enabled = is_global_accessibility_enabled(device, device_target)?;
-    let service_bound = is_service_bound(device, device_target, nielsen_component);
+    let dumpsys = device
+        .run_shell(device_target, "dumpsys accessibility")
+        .unwrap_or_default();
+    let service_bound = parse_is_service_bound(&dumpsys, nielsen_component);
+    let service_binding = parse_is_service_binding(&dumpsys, nielsen_component);
 
     let already_present = current_services
         .iter()
@@ -144,12 +159,19 @@ pub fn ensure_accessibility_enabled(
         return Ok(false);
     }
 
+    if already_present && global_enabled && service_binding {
+        debug!(
+            "Nielsen accessibility service is currently binding in system server ({nielsen_component})"
+        );
+        return Ok(false);
+    }
+
     let other_services: Vec<String> = current_services
         .into_iter()
         .filter(|s| !is_nielsen_match(s, nielsen_component))
         .collect();
 
-    if already_present && !service_bound {
+    if already_present && !service_bound && !service_binding {
         force_rebind_toggle(device, device_target, &other_services, nielsen_component)?;
     }
 
@@ -314,36 +336,46 @@ mod tests {
         ));
     }
 
+    const COMP: &str = "com.nlsn.confluencetv/nielsen.imi.acsdk.services.NxtLogService";
+
     #[test]
     fn test_ensure_accessibility_rebinds_when_unbound() -> Result<()> {
         let fake = FakeDevice::new();
-        let component = "com.nlsn.confluencetv/nielsen.imi.acsdk.services.NxtLogService";
-        fake.set_response(
-            "settings get secure enabled_accessibility_services",
-            component,
-        );
+        fake.set_response("settings get secure enabled_accessibility_services", COMP);
         fake.set_response("settings get secure accessibility_enabled", "1\n");
         fake.set_response("dumpsys accessibility", "Bound services:{}\n");
-        let changed = ensure_accessibility_enabled(&fake, "target", component)?;
-        assert!(changed);
+        assert!(ensure_accessibility_enabled(&fake, "target", COMP)?);
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_is_service_binding() {
+        let dump = "Bound services:{}\n     Binding services:{{com.nlsn.confluencetv/nielsen.imi.acsdk.services.NxtLogService}}";
+        assert!(parse_is_service_binding(dump, COMP));
+        assert!(!parse_is_service_bound(dump, COMP));
+    }
+
+    #[test]
+    fn test_ensure_accessibility_waits_when_binding() -> Result<()> {
+        let fake = FakeDevice::new();
+        fake.set_response("settings get secure enabled_accessibility_services", COMP);
+        fake.set_response("settings get secure accessibility_enabled", "1\n");
+        let dump = "Bound services:{}\n Binding services:{{com.nlsn.confluencetv/nielsen.imi.acsdk.services.NxtLogService}}";
+        fake.set_response("dumpsys accessibility", dump);
+        assert!(!ensure_accessibility_enabled(&fake, "target", COMP)?);
         Ok(())
     }
 
     #[test]
     fn test_ensure_accessibility_skips_when_bound() -> Result<()> {
         let fake = FakeDevice::new();
-        let component = "com.nlsn.confluencetv/nielsen.imi.acsdk.services.NxtLogService";
-        fake.set_response(
-            "settings get secure enabled_accessibility_services",
-            component,
-        );
+        fake.set_response("settings get secure enabled_accessibility_services", COMP);
         fake.set_response("settings get secure accessibility_enabled", "1\n");
         fake.set_response(
             "dumpsys accessibility",
-            "Bound services:{Service[label=ConfluenceTV]}\n",
+            "Bound services:{Service[label=ConfluenceTV]}",
         );
-        let changed = ensure_accessibility_enabled(&fake, "target", component)?;
-        assert!(!changed);
+        assert!(!ensure_accessibility_enabled(&fake, "target", COMP)?);
         Ok(())
     }
 }
