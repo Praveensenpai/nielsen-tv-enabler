@@ -81,7 +81,7 @@ const fn default_check_interval() -> u64 {
 }
 
 const fn default_offline_retry() -> u64 {
-    45
+    15
 }
 
 const fn default_sync_delay() -> u64 {

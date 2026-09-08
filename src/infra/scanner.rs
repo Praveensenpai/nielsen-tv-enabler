@@ -44,7 +44,7 @@ impl Scanner {
         if let Some(ip) = quick_check_ip
             && !ip.is_empty()
             && ip != "auto"
-            && Self::probe_tcp_port(ip, port, Duration::from_millis(400))
+            && Self::probe_tcp_port(ip, port, Duration::from_millis(1000))
         {
             info!("Target IP {ip}:{port} responded immediately!");
             return Ok(vec![ip.to_string()]);

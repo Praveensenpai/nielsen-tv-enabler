@@ -78,7 +78,9 @@ pub fn run_daemon(adb: &AdbClient, mut cfg: Config, config_path: &Path) -> Resul
 pub fn resolve_tv_ip(adb: &AdbClient, cfg: &mut Config, config_path: &Path) -> Result<String> {
     if let Ok(attached) = adb.list_attached_devices() {
         for dev in attached {
-            if let Some((ip_part, _)) = dev.serial.split_once(':') {
+            if dev.state == "device"
+                && let Some((ip_part, _)) = dev.serial.split_once(':')
+            {
                 if cfg.last_known_ip.as_deref() != Some(ip_part) {
                     cfg.last_known_ip = Some(ip_part.to_string());
                     let _ = cfg.save(config_path);
@@ -92,10 +94,13 @@ pub fn resolve_tv_ip(adb: &AdbClient, cfg: &mut Config, config_path: &Path) -> R
         return Ok(cfg.tv_ip.clone());
     }
 
-    if let Some(ref last_ip) = cfg.last_known_ip
-        && Scanner::probe_tcp_port(last_ip, cfg.adb_port, Duration::from_millis(350))
-    {
-        return Ok(last_ip.clone());
+    if let Some(ref last_ip) = cfg.last_known_ip {
+        for _ in 0..2 {
+            if Scanner::probe_tcp_port(last_ip, cfg.adb_port, Duration::from_millis(1000)) {
+                return Ok(last_ip.clone());
+            }
+            thread::sleep(Duration::from_millis(150));
+        }
     }
 
     let found = Scanner::scan_subnet_for_adb(
