@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.1.10] - 2026-09-08
+
+Fix accessibility re-bind flapping loop and accelerate TV discovery on startup!
+
+### 🌟 Key Highlights
+- **🛡️ Binding State Detection & Loop Prevention**: Added `parse_is_service_binding` to detect Android's in-progress `Binding services:{{...}}` state. Prevents destructive rebind toggling while Android is actively launching and binding the service.
+- **⚡ Fast TV Boot Reconnect**: Enhanced `resolve_tv_ip` to verify `dev.state == "device"` and increased the `last_known_ip` probe timeout to 1000ms with retries, eliminating 50-second ARP-stalled subnet scans when TV turns on.
+- **⏱️ Optimized Retry Cadence**: Reduced default offline retry interval from 45s to 15s for prompt recovery once TV associates with local Wi-Fi.
+- **🧪 Comprehensive Unit Testing**: Added unit tests verifying `Binding services` detection and ensuring that binding states safely skip re-binding cycles.
+
+### 📦 Multi-Architecture Binaries
+- **x86_64 Linux**: `nielsen-tv-enabler-x86_64-unknown-linux-gnu.tar.gz`
+- **aarch64 / ARM64 Linux**: `nielsen-tv-enabler-aarch64-unknown-linux-gnu.tar.gz`
+
+### ⚡ Quick 1-Click Install
+```bash
+curl -fsSL https://raw.githubusercontent.com/Praveensenpai/nielsen-tv-enabler/main/install.sh | bash
+```
+
+---
+
 ## [v0.1.9] - 2026-09-07
 
 Actively verify Android accessibility service bound status and auto-recover from dormant states!
