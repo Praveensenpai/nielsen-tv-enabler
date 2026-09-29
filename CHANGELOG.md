@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.1.11] - 2026-09-29
+
+Accelerated prompt response delay for 'Who is watching?' survey dialogs!
+
+### 🌟 Key Highlights
+- **⚡ Snappy Prompt Reaction Delay**: Reduced the humanized reaction delay from 2,200ms–5,400ms down to 500ms–1,200ms before auto-answering "Who is watching?" survey dialogs, clearing on-screen prompts over 3× faster while retaining natural organic timing variance.
+- **🧪 Unit Testing**: Updated boundary verification assertions in `test_humanized_reaction_delay_range` to validate new 500ms–1,200ms limits.
+
+### 📦 Multi-Architecture Binaries
+- **x86_64 Linux**: `nielsen-tv-enabler-x86_64-unknown-linux-gnu.tar.gz`
+- **aarch64 / ARM64 Linux**: `nielsen-tv-enabler-aarch64-unknown-linux-gnu.tar.gz`
+
+### ⚡ Quick 1-Click Install
+```bash
+curl -fsSL https://raw.githubusercontent.com/Praveensenpai/nielsen-tv-enabler/main/install.sh | bash
+```
+
+---
+
 ## [v0.1.10] - 2026-09-08
 
 Fix accessibility re-bind flapping loop and accelerate TV discovery on startup!

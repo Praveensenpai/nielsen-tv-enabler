@@ -55,15 +55,15 @@ pub fn handle_who_is_watching(device: &impl DeviceCommander, device_target: &str
     Ok(true)
 }
 
-/// Calculates an organic, human-like reaction delay between 2,200ms and 5,400ms before prompt response.
+/// Calculates an organic, human-like reaction delay between 500ms and 1,200ms before prompt response.
 #[must_use]
 pub fn humanized_reaction_delay() -> Duration {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
-    let offset_ms = u64::try_from(nanos % 3200).unwrap_or(1500);
-    Duration::from_millis(2200 + offset_ms)
+    let offset_ms = u64::try_from(nanos % 701).unwrap_or(350);
+    Duration::from_millis(500 + offset_ms)
 }
 
 /// Parses member checkboxes and calculates center coordinates for tapping.
@@ -174,7 +174,7 @@ mod tests {
     #[test]
     fn test_humanized_reaction_delay_range() {
         let delay = humanized_reaction_delay();
-        assert!(delay >= Duration::from_millis(2200));
-        assert!(delay <= Duration::from_millis(5400));
+        assert!(delay >= Duration::from_millis(500));
+        assert!(delay <= Duration::from_millis(1200));
     }
 }
