@@ -30,7 +30,7 @@ On many Android TVs, accessibility services (like Nielsen's `com.nlsn.confluence
 
 | Feature | Description |
 |---|---|
-| **🤖 Survey Auto-Dismissal** | Scans for *"Who is watching?"* dialogs, calculates checkbox coordinates, picks a member, pauses with humanized reaction delay (2.2s–5.4s), clicks OK, and dismisses the overlay. |
+| **🤖 Survey Auto-Dismissal** | Scans for *"Who is watching?"* dialogs, calculates checkbox coordinates, picks a member, pauses with humanized reaction delay (500ms–1,200ms), clicks OK, and dismisses the overlay. |
 | **🛡️ VPN Access Auto-Approval** | Grants `ACTIVATE_VPN` app-op permission and automatically approves Android system VPN connection request dialogs (`com.android.vpndialogs`). |
 | **🔄 Organic Daily Sync** | Triggers Nielsen background data upload once per day (10s post-enable delay) with organic ±30 min timing variance. |
 | **🔍 Subnet Auto-Scanning** | Scans all 254 hosts on your local subnet in parallel over port `5555` to automatically find your TV's IP. |
@@ -153,7 +153,7 @@ service_component = "com.nlsn.confluencetv/nielsen.imi.acsdk.services.NxtLogServ
 check_interval_secs = 5
 
 # Backoff retry interval in seconds when TV is offline or sleeping
-offline_retry_interval_secs = 45
+offline_retry_interval_secs = 15
 
 # Optional subnet CIDR override (e.g. "192.168.0.0/24")
 subnet_cidr = ""
