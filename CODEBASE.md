@@ -82,7 +82,7 @@ main.rs ──> cli.rs ──> app.rs / app/daemon.rs ──> domain/{service, p
   ```
 - **Consumers**: `domain::prompt`, `domain::service`, `domain::vpn`, `domain::detect`
 
-### `src/domain/prompt.rs` (Role: domain, Lines: 180)
+### `src/domain/prompt.rs` (Role: domain)
 - **Responsibility**: Detects and answers the "Who is watching?" survey prompt with humanized delay and random member selection.
 - **Imports**: `crate::domain::DeviceCommander`, `regex::Regex`, `std::time::{Duration, SystemTime, UNIX_EPOCH}`
 - **Public Functions & Signatures**:
@@ -90,20 +90,43 @@ main.rs ──> cli.rs ──> app.rs / app/daemon.rs ──> domain/{service, p
   pub fn handle_who_is_watching(device: &impl DeviceCommander, device_target: &str) -> Result<bool>
   pub fn humanized_reaction_delay() -> Duration // 500ms..=1200ms
   ```
+- **Private Functions**:
+  ```rust
+  fn nielsen_in_foreground(device: &impl DeviceCommander, device_target: &str) -> bool // window OR activity dump
+  fn dump_ui_with_retry(device: &impl DeviceCommander, device_target: &str) -> Option<String> // retries once
+  fn extract_member_checkboxes(ui_dump: &str) -> Vec<(String, u32, u32)>
+  fn pick_random_member(options: &[(String, u32, u32)]) -> (String, u32, u32)
+  fn extract_ok_button(ui_dump: &str) -> (u32, u32)
+  fn dismiss_overlay_if_active(device: &impl DeviceCommander, device_target: &str)
+  ```
 - **Consumers**: `src/app.rs`, `src/app/daemon.rs`
 - **Side Effects / I/O**: Device UI automator dump, ADB tap inputs.
+- **Notes**: Detection checks both `mCurrentFocus`/`mFocusedApp` and `ResumedActivity`, since `PersonDialogActivity` can leave `mCurrentFocus=null`. UI dump retries once because `uiautomator` intermittently returns "null root node".
 
-### `src/domain/service.rs` (Role: domain, Lines: 381)
-- **Responsibility**: Queries and activates the Nielsen Accessibility Service, detecting bound/binding state and atomic toggling.
-- **Imports**: `crate::domain::DeviceCommander`, `crate::domain::detect`
+### `src/domain/service.rs` (Role: domain)
+- **Responsibility**: Queries and activates the Nielsen Accessibility Service, detecting bound/binding state with rate-limited remediation.
+- **Imports**: `crate::domain::DeviceCommander`, `crate::domain::detect`, `std::sync::atomic`, `std::time`
 - **Public Functions & Signatures**:
   ```rust
   pub fn ensure_accessibility_enabled(device: &impl DeviceCommander, device_target: &str, nielsen_component: &str) -> Result<bool>
   pub fn is_accessibility_globally_enabled(device: &impl DeviceCommander, device_target: &str) -> Result<bool>
   pub fn get_enabled_accessibility_services(device: &impl DeviceCommander, device_target: &str) -> Result<Vec<String>>
+  pub fn is_nielsen_match(service: &str, nielsen_component: &str) -> bool
+  pub fn is_service_bound(device: &impl DeviceCommander, device_target: &str, nielsen_component: &str) -> bool
+  pub fn parse_is_service_bound(dumpsys: &str, nielsen_component: &str) -> bool
+  pub fn parse_is_service_binding(dumpsys: &str, nielsen_component: &str) -> bool
+  ```
+- **Private State / Functions**:
+  ```rust
+  const REBIND_BACKOFF: Duration = 60s
+  static LAST_REBIND_MS: AtomicU64
+  fn rebind_backoff_elapsed() -> bool
+  fn force_rebind_toggle(...) -> Result<()>
+  fn verify_enabled_state(...) -> Result<bool>
   ```
 - **Consumers**: `src/app.rs`, `src/app/daemon.rs`
 - **Side Effects / I/O**: ADB settings commands, dumpsys queries.
+- **Notes**: If the service is `Bound`/`Binding`, settings are left untouched (rewriting cancels Android's in-flight bind). All remediation is rate-limited to one attempt per `REBIND_BACKOFF` window to avoid wedging the accessibility framework.
 
 ### `src/domain/detect.rs` (Role: domain, Lines: 90)
 - **Responsibility**: Scans installed packages and accessibility services to auto-detect the Nielsen component string.
@@ -134,15 +157,25 @@ main.rs ──> cli.rs ──> app.rs / app/daemon.rs ──> domain/{service, p
   ```
 - **Consumers**: `src/app/daemon.rs`, `src/app.rs`
 
-### `src/infra/adb.rs` (Role: infra, Lines: 184)
+### `src/infra/adb.rs` (Role: infra)
 - **Responsibility**: Wraps `adb` CLI binary commands and implements `DeviceCommander`.
 - **Types & Enums**:
   ```rust
-  pub struct AdbClient { pub adb_path: String }
-  pub enum DeviceStatus { Ready, Unauthorized, Offline, Missing }
+  pub struct AdbClient { pub adb_binary: PathBuf }
+  pub enum DeviceStatus { Ready, Unauthorized, Offline, NotFound }
+  pub struct DeviceInfo { pub serial: String, pub state: String }
+  ```
+- **Private Helpers**:
+  ```rust
+  const ADB_COMMAND_TIMEOUT: Duration = 15s
+  fn spawn_reader<R: Read + Send + 'static>(reader: R) -> thread::JoinHandle<String>
+  fn join_reader(handle: Option<thread::JoinHandle<String>>) -> String
+  fn resolve_adb_path(custom_path: Option<&str>) -> PathBuf
+  fn verify_adb_binary(path: &Path) -> Result<()>
   ```
 - **Consumers**: `src/app.rs`, `src/app/daemon.rs`
 - **Side Effects / I/O**: Subprocess execution of `adb`.
+- **Notes**: `run_adb` polls the child process and kills it after `ADB_COMMAND_TIMEOUT`, so a wedged `adb shell` cannot stall the daemon loop.
 
 ### `src/infra/scanner.rs` (Role: infra, Lines: 168)
 - **Responsibility**: Fast parallel TCP port probing across local subnets to find ADB targets.
@@ -162,7 +195,7 @@ main.rs ──> cli.rs ──> app.rs / app/daemon.rs ──> domain/{service, p
 1. **Startup**: Entrypoint `main.rs` initializes env_logger and parses `cli::Cli`.
 2. **Dispatch**: `app::run()` matches CLI flags (`--daemon`, `--status`, `--once`, `--dismiss-prompt`, or subcommands).
 3. **Daemon Loop**: `app::daemon::run_daemon()` resolves TV IP, establishes ADB connection, and checks readiness.
-4. **Active Cycle**: Checks accessibility service state via `dumpsys`, re-binds if unbound, grants VPN, dismisses "Who is watching?" with 500ms–1200ms delay, and executes daily sync if due.
+4. **Active Cycle**: Checks accessibility service state via `dumpsys`. If the service is bound or binding, settings are left untouched; if unbound and listed, remediation is rate-limited to one attempt per 60s backoff window. Grants VPN, dismisses "Who is watching?" with 500ms–1200ms delay, and executes daily sync if due.
 5. **Sleep & Retry**: Sleeps for `check_interval_secs` (or `offline_retry_interval_secs` if disconnected).
 
 ## 5. Verification Commands
@@ -179,4 +212,5 @@ cargo fmt --check
 ```
 
 ## 6. Recent Iteration Changes
+- **2026-10-06**: Fixed "Who is watching?" prompt never being dismissed. Root cause: `ensure_accessibility_enabled` rewrote `enabled_accessibility_services` on every cycle even while the service was in Android's `Binding` state, cancelling the in-flight bind and wedging the accessibility framework (which made `uiautomator` return "null root node"). Fixes: (1) `run_adb` now enforces a 15s timeout so a wedged shell cannot stall the daemon; (2) `ensure_accessibility_enabled` leaves settings untouched while bound/binding and rate-limits remediation to one attempt per 60s `REBIND_BACKOFF` window; (3) `handle_who_is_watching` checks both window and `ResumedActivity` focus and retries the UI dump once.
 - **2026-09-29**: Reduced humanized reaction delay in `src/domain/prompt.rs` from 2.2s–5.4s to 500ms–1,200ms (`nanos % 701`) for faster survey prompt response; bumped version to v0.1.11; added `CODEBASE.md`.

@@ -12,18 +12,12 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 /// # Errors
 /// Returns an error if device shell commands fail.
 pub fn handle_who_is_watching(device: &impl DeviceCommander, device_target: &str) -> Result<bool> {
-    let Ok(focus) = device.run_shell(
-        device_target,
-        "dumpsys window | grep -E 'mCurrentFocus|mFocusedApp'",
-    ) else {
-        return Ok(false);
-    };
-    if !focus.contains("com.nlsn.confluencetv") {
+    if !nielsen_in_foreground(device, device_target) {
         return Ok(false);
     }
 
-    let dump_cmd = "uiautomator dump /data/local/tmp/uidump.xml >/dev/null 2>&1 && cat /data/local/tmp/uidump.xml";
-    let Ok(ui_dump) = device.run_shell(device_target, dump_cmd) else {
+    let Some(ui_dump) = dump_ui_with_retry(device, device_target) else {
+        debug!("uiautomator dump failed after retry; skipping prompt handling.");
         return Ok(false);
     };
     if !ui_dump.contains("Who is watching?") && !ui_dump.contains("buttonOk") {
@@ -53,6 +47,45 @@ pub fn handle_who_is_watching(device: &impl DeviceCommander, device_target: &str
     dismiss_overlay_if_active(device, device_target);
     info!("[SUCCESS] Answered 'Who is watching?' with '{selected_name}'!");
     Ok(true)
+}
+
+/// Checks whether the Nielsen app is in the foreground, using both window and activity dumps.
+///
+/// The 'Who is watching?' dialog is hosted by `PersonDialogActivity`, which can leave
+/// `mCurrentFocus` as `null` on some Android TV builds. In that case `mFocusedApp` still
+/// names the Nielsen component, so both signals are inspected.
+fn nielsen_in_foreground(device: &impl DeviceCommander, device_target: &str) -> bool {
+    let window_cmd = "dumpsys window | grep -E 'mCurrentFocus|mFocusedApp'";
+    if let Ok(focus) = device.run_shell(device_target, window_cmd)
+        && focus.contains("com.nlsn.confluencetv")
+    {
+        return true;
+    }
+
+    let activity_cmd = "dumpsys activity activities | grep -E 'ResumedActivity|mResumedActivity'";
+    if let Ok(resumed) = device.run_shell(device_target, activity_cmd)
+        && resumed.contains("com.nlsn.confluencetv")
+    {
+        return true;
+    }
+
+    false
+}
+
+/// Dumps the UI hierarchy, retrying once. Returns `None` if both attempts fail.
+fn dump_ui_with_retry(device: &impl DeviceCommander, device_target: &str) -> Option<String> {
+    let dump_cmd = "uiautomator dump /data/local/tmp/uidump.xml >/dev/null 2>&1 && cat /data/local/tmp/uidump.xml";
+    for attempt in 1..=2 {
+        match device.run_shell(device_target, dump_cmd) {
+            Ok(out) if out.contains("<hierarchy") => return Some(out),
+            Ok(_) => debug!("UI dump attempt {attempt} returned no hierarchy."),
+            Err(e) => debug!("UI dump attempt {attempt} failed: {e}"),
+        }
+        if attempt == 1 {
+            std::thread::sleep(Duration::from_millis(400));
+        }
+    }
+    None
 }
 
 /// Calculates an organic, human-like reaction delay between 500ms and 1,200ms before prompt response.
@@ -145,6 +178,122 @@ fn dismiss_overlay_if_active(device: &impl DeviceCommander, device_target: &str)
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
+    use std::sync::RwLock;
+
+    struct FakeDevice {
+        responses: RwLock<HashMap<String, String>>,
+        calls: RwLock<Vec<String>>,
+    }
+
+    impl FakeDevice {
+        fn new() -> Self {
+            Self {
+                responses: RwLock::new(HashMap::new()),
+                calls: RwLock::new(Vec::new()),
+            }
+        }
+
+        fn set_response(&self, cmd: &str, resp: &str) {
+            let mut map = self
+                .responses
+                .write()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            map.insert(cmd.to_string(), resp.to_string());
+        }
+
+        fn call_count(&self) -> usize {
+            self.calls
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .len()
+        }
+    }
+
+    impl DeviceCommander for FakeDevice {
+        fn run_shell(&self, _target: &str, command: &str) -> Result<String> {
+            self.calls
+                .write()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push(command.to_string());
+            let map = self
+                .responses
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            Ok(map.get(command).cloned().unwrap_or_default())
+        }
+    }
+
+    #[test]
+    fn test_nielsen_in_foreground_via_focused_app() {
+        let fake = FakeDevice::new();
+        fake.set_response(
+            "dumpsys window | grep -E 'mCurrentFocus|mFocusedApp'",
+            "mCurrentFocus=null\n  mFocusedApp=ActivityRecord{9559339 u0 com.nlsn.confluencetv/.PersonDialogActivity t5902}",
+        );
+        assert!(nielsen_in_foreground(&fake, "target"));
+    }
+
+    #[test]
+    fn test_nielsen_in_foreground_via_activity_dump() {
+        let fake = FakeDevice::new();
+        fake.set_response(
+            "dumpsys window | grep -E 'mCurrentFocus|mFocusedApp'",
+            "mCurrentFocus=Window{abc u0 org.smarttube.stable/BrowseActivity}",
+        );
+        fake.set_response(
+            "dumpsys activity activities | grep -E 'ResumedActivity|mResumedActivity'",
+            "mResumedActivity: ActivityRecord{9559339 u0 com.nlsn.confluencetv/.PersonDialogActivity t5902}",
+        );
+        assert!(nielsen_in_foreground(&fake, "target"));
+    }
+
+    #[test]
+    fn test_nielsen_not_in_foreground() {
+        let fake = FakeDevice::new();
+        fake.set_response(
+            "dumpsys window | grep -E 'mCurrentFocus|mFocusedApp'",
+            "mCurrentFocus=Window{abc u0 org.smarttube.stable/BrowseActivity}",
+        );
+        fake.set_response(
+            "dumpsys activity activities | grep -E 'ResumedActivity|mResumedActivity'",
+            "mResumedActivity: ActivityRecord{abc u0 org.smarttube.stable/BrowseActivity}",
+        );
+        assert!(!nielsen_in_foreground(&fake, "target"));
+    }
+
+    #[test]
+    fn test_dump_ui_retries_until_hierarchy() {
+        let fake = FakeDevice::new();
+        // The command key always returns an empty body first; retry logic only checks content.
+        let dump_cmd = "uiautomator dump /data/local/tmp/uidump.xml >/dev/null 2>&1 && cat /data/local/tmp/uidump.xml";
+        fake.set_response(dump_cmd, "ERROR: could not get idle state");
+        assert!(dump_ui_with_retry(&fake, "target").is_none());
+        assert_eq!(fake.call_count(), 2, "dump should be attempted twice");
+    }
+
+    #[test]
+    fn test_dump_ui_returns_hierarchy() {
+        let fake = FakeDevice::new();
+        let dump_cmd = "uiautomator dump /data/local/tmp/uidump.xml >/dev/null 2>&1 && cat /data/local/tmp/uidump.xml";
+        fake.set_response(dump_cmd, "<?xml version='1.0'?><hierarchy></hierarchy>");
+        assert!(dump_ui_with_retry(&fake, "target").is_some());
+    }
+
+    #[test]
+    fn test_handle_who_is_watching_no_prompt_when_not_foreground() -> Result<()> {
+        let fake = FakeDevice::new();
+        fake.set_response(
+            "dumpsys window | grep -E 'mCurrentFocus|mFocusedApp'",
+            "mCurrentFocus=Window{abc u0 org.smarttube.stable/BrowseActivity}",
+        );
+        fake.set_response(
+            "dumpsys activity activities | grep -E 'ResumedActivity|mResumedActivity'",
+            "mResumedActivity: ActivityRecord{abc u0 org.smarttube.stable/BrowseActivity}",
+        );
+        assert!(!handle_who_is_watching(&fake, "target")?);
+        Ok(())
+    }
 
     #[test]
     fn test_extract_member_checkboxes() {

@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.1.12] - 2026-10-06
+
+Fixed 'Who is watching?' dialogs silently going unanswered!
+
+### 🌟 Key Highlights
+- **🔧 Unbound Service Flood Fix**: `ensure_accessibility_enabled` no longer rewrites `enabled_accessibility_services` while the Nielsen service is in Android's `Binding` state. Rewriting mid-bind cancelled the in-flight bind on every cycle, leaving the service permanently unbound and wedging the accessibility framework.
+- **⏱️ Rate-Limited Remediation**: Accessibility remediation is now throttled to one attempt per 60s window (`REBIND_BACKOFF`), replacing the previous every-5s settings flood that starved prompt detection.
+- **🛡️ ADB Command Timeout**: `run_adb` now enforces a 15s timeout and kills stuck child processes, so a wedged `adb shell` can no longer stall the daemon loop indefinitely.
+- **🔎 Resilient Prompt Detection**: `handle_who_is_watching` now checks both `mCurrentFocus`/`mFocusedApp` and `ResumedActivity` (since `PersonDialogActivity` can leave `mCurrentFocus=null`), and retries the `uiautomator` dump once when the accessibility bridge returns "null root node".
+- **🧪 Test Coverage**: Added 8 tests covering rebind backoff, foreground detection via window and activity dumps, and UI dump retry behavior.
+
+### 📦 Multi-Architecture Binaries
+- **x86_64 Linux**: `nielsen-tv-enabler-x86_64-unknown-linux-gnu.tar.gz`
+- **aarch64 / ARM64 Linux**: `nielsen-tv-enabler-aarch64-unknown-linux-gnu.tar.gz`
+
+### ⚡ Quick 1-Click Install
+```bash
+curl -fsSL https://raw.githubusercontent.com/Praveensenpai/nielsen-tv-enabler/main/install.sh | bash
+```
+
+---
+
 ## [v0.1.11] - 2026-09-29
 
 Accelerated prompt response delay for 'Who is watching?' survey dialogs!

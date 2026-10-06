@@ -4,6 +4,45 @@ use crate::domain::DeviceCommander;
 pub use crate::domain::detect::detect_nielsen_service;
 use anyhow::Result;
 use log::{debug, info, warn};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+/// Minimum interval between forced accessibility re-bind toggles.
+const REBIND_BACKOFF: Duration = Duration::from_secs(60);
+
+/// Epoch-millis of the last forced re-bind toggle (0 = never).
+static LAST_REBIND_MS: AtomicU64 = AtomicU64::new(0);
+
+/// Returns the current Unix time in milliseconds, saturating on overflow.
+fn now_millis() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .try_into()
+        .unwrap_or(u64::MAX)
+}
+
+/// Checks whether the re-bind backoff window has elapsed since the last toggle.
+fn rebind_backoff_elapsed() -> bool {
+    let last = LAST_REBIND_MS.load(Ordering::Relaxed);
+    if last == 0 {
+        return true;
+    }
+    let window = u64::try_from(REBIND_BACKOFF.as_millis()).unwrap_or(u64::MAX);
+    now_millis().saturating_sub(last) >= window
+}
+
+/// Records that a forced re-bind toggle was just performed.
+fn mark_rebind() {
+    LAST_REBIND_MS.store(now_millis(), Ordering::Relaxed);
+}
+
+/// Resets the re-bind backoff window (test helper).
+#[cfg(test)]
+fn reset_rebind_backoff() {
+    LAST_REBIND_MS.store(0, Ordering::Relaxed);
+}
 
 /// Queries the currently enabled accessibility services list from Android settings.
 ///
@@ -115,6 +154,11 @@ fn force_rebind_toggle(
     other_services: &[String],
     nielsen_component: &str,
 ) -> Result<()> {
+    if !rebind_backoff_elapsed() {
+        debug!("Skipping forced re-bind: backoff window not elapsed yet.");
+        return Ok(());
+    }
+    mark_rebind();
     info!("Nielsen service listed in settings but not bound. Forcing re-bind toggle...");
     let temp_str = other_services.join(":");
     device.run_shell(
@@ -154,39 +198,55 @@ pub fn ensure_accessibility_enabled(
         .iter()
         .any(|s| is_nielsen_match(s, nielsen_component));
 
-    if already_present && global_enabled && service_bound {
-        debug!("Nielsen accessibility service is already enabled and bound ({nielsen_component})");
+    // Service is up (bound or in the middle of binding). Never rewrite
+    // `enabled_accessibility_services` here: doing so cancels Android's in-flight
+    // binding attempt, which is what kept the service permanently unbound.
+    if already_present && (service_bound || service_binding) {
+        debug!(
+            "Nielsen accessibility service is {} ({nielsen_component})",
+            if service_bound { "bound" } else { "binding" }
+        );
+        if !global_enabled {
+            info!("Enabling global accessibility switch (accessibility_enabled=1)...");
+            device.run_shell(device_target, "settings put secure accessibility_enabled 1")?;
+        }
         return Ok(false);
     }
 
-    if already_present && global_enabled && service_binding {
+    // Service is not listed at all: add it once, no toggle dance.
+    if !already_present {
+        let mut new_services = current_services;
+        new_services.push(nielsen_component.to_string());
+        let new_services_str = new_services.join(":");
+        info!(
+            "Enabling Nielsen accessibility service (setting enabled_accessibility_services='{new_services_str}')..."
+        );
+        device.run_shell(
+            device_target,
+            &format!("settings put secure enabled_accessibility_services \"{new_services_str}\""),
+        )?;
+        if !global_enabled {
+            info!("Enabling global accessibility switch (accessibility_enabled=1)...");
+            device.run_shell(device_target, "settings put secure accessibility_enabled 1")?;
+        }
+        return verify_enabled_state(device, device_target, nielsen_component);
+    }
+
+    // Service is listed but not bound/binding. Rate-limit the whole remediation to
+    // one attempt per backoff window so we never flood the device or wedge the
+    // accessibility framework (which breaks `uiautomator` and prompt detection).
+    if !rebind_backoff_elapsed() {
         debug!(
-            "Nielsen accessibility service is currently binding in system server ({nielsen_component})"
+            "Nielsen service listed but unbound; within re-bind backoff window, skipping remediation."
         );
         return Ok(false);
     }
 
-    let other_services: Vec<String> = current_services
-        .into_iter()
-        .filter(|s| !is_nielsen_match(s, nielsen_component))
-        .collect();
-
-    if already_present && !service_bound && !service_binding {
-        force_rebind_toggle(device, device_target, &other_services, nielsen_component)?;
-    }
-
-    let mut new_services = other_services;
-    new_services.push(nielsen_component.to_string());
-    let new_services_str = new_services.join(":");
-
-    info!(
-        "Enabling Nielsen accessibility service (setting enabled_accessibility_services='{new_services_str}')..."
-    );
+    force_rebind_toggle(device, device_target, &[], nielsen_component)?;
     device.run_shell(
         device_target,
-        &format!("settings put secure enabled_accessibility_services \"{new_services_str}\""),
+        &format!("settings put secure enabled_accessibility_services \"{nielsen_component}\""),
     )?;
-
     if !global_enabled {
         info!("Enabling global accessibility switch (accessibility_enabled=1)...");
         device.run_shell(device_target, "settings put secure accessibility_enabled 1")?;
@@ -338,13 +398,37 @@ mod tests {
 
     const COMP: &str = "com.nlsn.confluencetv/nielsen.imi.acsdk.services.NxtLogService";
 
+    /// Serializes tests that mutate the process-wide re-bind backoff timestamp.
+    static REBIND_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn test_ensure_accessibility_rebinds_when_unbound() -> Result<()> {
+        let _guard = REBIND_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        reset_rebind_backoff();
         let fake = FakeDevice::new();
         fake.set_response("settings get secure enabled_accessibility_services", COMP);
         fake.set_response("settings get secure accessibility_enabled", "1\n");
         fake.set_response("dumpsys accessibility", "Bound services:{}\n");
         assert!(ensure_accessibility_enabled(&fake, "target", COMP)?);
+        Ok(())
+    }
+
+    #[test]
+    fn test_ensure_accessibility_respects_rebind_backoff() -> Result<()> {
+        let _guard = REBIND_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        reset_rebind_backoff();
+        let fake = FakeDevice::new();
+        fake.set_response("settings get secure enabled_accessibility_services", COMP);
+        fake.set_response("settings get secure accessibility_enabled", "1\n");
+        fake.set_response("dumpsys accessibility", "Bound services:{}\n");
+        // First pass performs the toggle and records the timestamp.
+        assert!(ensure_accessibility_enabled(&fake, "target", COMP)?);
+        // Second pass, immediately after, must be skipped by the backoff window.
+        assert!(!ensure_accessibility_enabled(&fake, "target", COMP)?);
         Ok(())
     }
 

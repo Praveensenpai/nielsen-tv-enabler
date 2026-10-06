@@ -3,8 +3,14 @@
 use crate::domain::DeviceCommander;
 use anyhow::{Context, Result, bail};
 use log::{debug, warn};
+use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
+
+/// Maximum time to wait for a single ADB command before aborting it.
+const ADB_COMMAND_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Lifecycle connection status of a targeted Android device.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,15 +58,33 @@ impl AdbClient {
     /// # Errors
     /// Returns an error if the process fails to spawn or exits with a non-zero status.
     pub fn run_adb(&self, args: &[&str]) -> Result<String> {
-        let output = Command::new(&self.adb_binary)
+        let mut child = Command::new(&self.adb_binary)
             .args(args)
-            .output()
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
             .with_context(|| format!("Failed to run adb with args {args:?}"))?;
 
-        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let stdout_reader = child.stdout.take().map(spawn_reader);
+        let stderr_reader = child.stderr.take().map(spawn_reader);
 
-        if !output.status.success() {
+        let deadline = Instant::now() + ADB_COMMAND_TIMEOUT;
+        let status = loop {
+            if let Some(status) = child.try_wait()? {
+                break status;
+            }
+            if Instant::now() >= deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                bail!("ADB command timed out after {ADB_COMMAND_TIMEOUT:?}: adb {args:?}");
+            }
+            thread::sleep(Duration::from_millis(25));
+        };
+
+        let stdout = join_reader(stdout_reader).trim().to_string();
+        let stderr = join_reader(stderr_reader).trim().to_string();
+
+        if !status.success() {
             let err_msg = if stderr.is_empty() { stdout } else { stderr };
             bail!("ADB error: {err_msg}");
         }
@@ -128,6 +152,20 @@ impl AdbClient {
 
         Ok(devices)
     }
+}
+
+/// Spawns a thread that drains a child process stream into a string.
+fn spawn_reader<R: Read + Send + 'static>(mut reader: R) -> thread::JoinHandle<String> {
+    thread::spawn(move || {
+        let mut buf = String::new();
+        let _ = reader.read_to_string(&mut buf);
+        buf
+    })
+}
+
+/// Joins a reader thread, returning its collected output or an empty string.
+fn join_reader(handle: Option<thread::JoinHandle<String>>) -> String {
+    handle.and_then(|h| h.join().ok()).unwrap_or_default()
 }
 
 impl DeviceCommander for AdbClient {
